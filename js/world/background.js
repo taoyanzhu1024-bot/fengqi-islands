@@ -157,7 +157,7 @@ export function skyCastle(scene) {
 }
 
 /** 飞鸟群：简单 V 形翅膀拍动 */
-export function birdFlocks(scene, anim) {
+export function birdFlocks(scene, anim, extra = []) {
   const wingGeo = new THREE.BufferGeometry();
   wingGeo.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0.3, 0, 0, -0.3, 1.4, 0, -0.1], 3));
   wingGeo.computeVertexNormals();
@@ -165,7 +165,7 @@ export function birdFlocks(scene, anim) {
   const r = mulberry32(88);
   const flocks = [
     { c: [0, 40, -60], R: 120 }, { c: [560, 70, -430], R: 160 }, { c: [-420, 80, 700], R: 120 },
-    { c: [300, 60, 300], R: 260 }, { c: [-700, 170, -40], R: 140 },
+    { c: [300, 60, 300], R: 260 }, { c: [-700, 170, -40], R: 140 }, ...extra,
   ];
   flocks.forEach((f, fi) => {
     const grp = new THREE.Group();

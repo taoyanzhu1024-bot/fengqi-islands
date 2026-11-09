@@ -7,6 +7,7 @@ import { MATS } from './materials.js';
 import { Noise2D } from './noise.js';
 
 const _c = new THREE.Color();
+const NI = new WeakMap(); // 共享几何体的非索引版本缓存（加快构建）
 const _up = new THREE.Vector3(0, 1, 0);
 
 // 位移/旋转/缩放 → Matrix4
@@ -69,11 +70,13 @@ export function blob(seed = 0, detail = 1, jitter = 0.2) {
 }
 
 export class Batcher {
-  constructor() { this.lists = {}; }
+  /** opts.chunk：按 XZ 网格（米）分块合批，便于视锥/阴影裁剪与分块 LOD */
+  constructor(opts = {}) { this.lists = {}; this.chunk = opts.chunk ?? 0; }
 
   /** 添加一个部件：kind=材质类别，color=颜色或 (x,y,z)=>Color 的函数 */
   add(kind, geo, color, matrix) {
-    const src = geo.index ? geo.toNonIndexed() : geo;
+    let src = geo;
+    if (geo.index) { src = NI.get(geo); if (!src) { src = geo.toNonIndexed(); NI.set(geo, src); } }
     const pos = src.attributes.position.clone();
     const nor = src.attributes.normal ? src.attributes.normal.clone() : null;
     pos.applyMatrix4(matrix);
@@ -92,7 +95,9 @@ export class Batcher {
       _c.set(color);
       for (let i = 0; i < n; i++) { col[i * 3] = _c.r; col[i * 3 + 1] = _c.g; col[i * 3 + 2] = _c.b; }
     }
-    (this.lists[kind] ||= []).push({ pos: pos.array, nor: nor ? nor.array : null, col });
+    let key = kind;
+    if (this.chunk) key += '|' + Math.floor(matrix.elements[12] / this.chunk) + '|' + Math.floor(matrix.elements[14] / this.chunk);
+    (this.lists[key] ||= []).push({ pos: pos.array, nor: nor ? nor.array : null, col });
   }
 
   // 圆柱连接两点（树枝、栏杆、根须）
@@ -108,7 +113,8 @@ export class Batcher {
   build(matOverride = {}) {
     const mats = MATS();
     const meshes = [];
-    for (const [kind, list] of Object.entries(this.lists)) {
+    for (const [key, list] of Object.entries(this.lists)) {
+      const [kind, cx, cz] = key.split('|');
       let total = 0;
       for (const l of list) total += l.pos.length;
       const P = new Float32Array(total), N = new Float32Array(total), C = new Float32Array(total);
@@ -128,6 +134,7 @@ export class Batcher {
       mesh.castShadow = shadow;
       mesh.receiveShadow = shadow;
       mesh.name = 'batch:' + kind;
+      if (cx !== undefined) mesh.userData.cell = cx + '|' + cz;
       meshes.push(mesh);
     }
     this.lists = {};

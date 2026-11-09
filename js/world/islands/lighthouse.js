@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { smoothstep } from '../../core/utils.js';
 import { PALETTE as P } from '../../config.js';
 import * as pr from '../props.js';
+import { DETAILS } from './details.js';
 import { grassField, flowerField } from '../vegetation.js';
 import { waterfall } from '../particles.js';
 
@@ -39,6 +40,7 @@ export const lighthouseTheme = {
     const beamGeo = new THREE.ConeGeometry(7, 90, 20, 1, true);
     beamGeo.translate(0, -45, 0); beamGeo.rotateZ(Math.PI / 2);
     const beam = new THREE.Mesh(beamGeo, new THREE.MeshBasicMaterial({ color: 0xfff1c8, transparent: true, opacity: 0.12, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
+    beam.name = 'lighthouseBeam';
     const pivot = new THREE.Group(); pivot.position.set(LH[0], y0, LH[1]); pivot.add(beam);
     isl.group.add(pivot);
     ctx.anim.push((dt) => (pivot.rotation.y += dt * 0.35));
@@ -60,6 +62,7 @@ export const lighthouseTheme = {
       ctx.collide(isl, x, z, 0.5, 8);
       n++;
     }
+    DETAILS.lighthouse(isl, ctx, b, this, info);
     ctx.stones(isl, b);
     ctx.mist(waterfall(isl, 0.9, { width: 2.5, len: 120 }), 40);
     ctx.scene.add(grassField(isl, { count: 9000, base: 0x7f9d78, tip: 0xc5d29c, tip2: 0xe6e0b0, h: [0.4, 1.0] }));

@@ -19,28 +19,35 @@ export const G = {
   hazeColor: { value: new THREE.Color(PALETTE.haze) },
   sunDir: { value: new THREE.Vector3(...WORLD.sunDir).normalize() },
   playerPos: { value: new THREE.Vector3() },
+  lightTint: { value: new THREE.Color(1, 1, 1) }, // 非光照材质（草、瀑布、粒子）的昼夜色调
 };
 
-// 云轨“逐段升起”共享参数（由 Railway.update 每帧写入）
-export const RAIL = {
+// 云轨“逐段升起”参数：每条线路一套（由 Railway.update 每帧写入）
+const makeRail = () => ({
   uRailS: { value: 0 }, uRailL: { value: 1 }, uRailMode: { value: 1 }, uTail: { value: 50 },
-  uNear: { value: 55 }, uFar: { value: 190 }, uSt: { value: new Array(8).fill(-1e6) },
-};
+  uNear: { value: 55 }, uFar: { value: 190 }, uSeg: { value: 6 }, uSt: { value: new Array(8).fill(-1e6) },
+  uClosed: { value: 1 }, uDir: { value: 1 },
+});
+export const RAILS = { loop: makeRail(), branch: makeRail() };
+export const RAIL = RAILS.loop;
 const RAIL_GLSL = /* glsl */ `
-uniform float uRailS, uRailL, uRailMode, uTail, uNear, uFar; uniform float uSt[8];
+uniform float uRailS, uRailL, uRailMode, uTail, uNear, uFar, uSeg, uClosed, uDir; uniform float uSt[8];
 attribute float aS;
-varying float vGlow;
+varying float vGlow; varying float vRev;
 float railReveal(float s, float shift, out float glow){
   float L = uRailL;
-  float ahead = mod(s - uRailS + L*4.0, L);
-  float behind = L - ahead;
+  float ahead, behind;
+  if (uClosed > 0.5) { ahead = mod(s - uRailS + L*4.0, L); behind = L - ahead; }
+  else { ahead = (s - uRailS) * uDir; behind = -ahead; if (ahead < 0.0) ahead = 1e6; if (behind < 0.0) behind = 1e6; }
   float stn = 0.0;
-  for (int i = 0; i < 8; i++) { float d = abs(mod(s - uSt[i] + L*1.5, L) - L*0.5); stn = max(stn, 1.0 - smoothstep(120.0, 160.0, d)); }
+  for (int i = 0; i < 8; i++) {
+    float d = uClosed > 0.5 ? abs(mod(s - uSt[i] + L*1.5, L) - L*0.5) : abs(s - uSt[i]);
+    stn = max(stn, 1.0 - smoothstep(120.0, 160.0, d));
+  }
   float form = 1.0 - smoothstep(uNear, uFar, ahead + shift);
   float keep = 1.0 - smoothstep(uTail + 140.0, uTail + 260.0, behind);
   float r = clamp(max(max(form, keep), stn), 0.0, 1.0);
-  // 尾迹金光 + 成形过程中的光芒
-  glow = (1.0 - smoothstep(uTail * 0.5, uTail + 200.0, behind)) * (1.0 - stn) * 0.45 * step(behind, L * 0.5);
+  glow = (1.0 - smoothstep(uTail * 0.5, uTail + 200.0, behind)) * (1.0 - stn) * 0.45 * step(behind, 1e5);
   glow += (1.0 - abs(r * 2.0 - 1.0)) * 0.9 * (1.0 - stn);
   if (uRailMode < 0.5) { r = 1.0; glow = 0.0; }
   return r;
@@ -75,11 +82,11 @@ export function wc(o = {}) {
     fog: o.fog ?? true,
   });
   const sway = o.sway ?? 0, haze = o.haze ?? 0, grain = o.grain ?? 1;
-  const rail = o.rail !== undefined, shift = (o.rail ?? 0).toFixed(1), inst = !!o.inst;
+  const rail = o.rail !== undefined, shift = (o.rail ?? 0).toFixed(1), inst = !!o.inst, railSet = o.railSet ?? 'loop';
   m.onBeforeCompile = (sh) => {
     sh.uniforms.uTime = G.time;
     sh.uniforms.uHazeColor = G.hazeColor;
-    if (rail) Object.assign(sh.uniforms, RAIL);
+    if (rail) Object.assign(sh.uniforms, RAILS[railSet]);
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', `#include <common>
         uniform float uTime; varying vec3 vWPos;
@@ -87,12 +94,12 @@ export function wc(o = {}) {
       .replace('#include <begin_vertex>', `#include <begin_vertex>
         ${rail ? `{
           float glow;
-          float segS = floor(aS / 6.0) * 6.0 + 3.0;   // 以 6 米为一段整体升起
+          float segS = floor(aS / uSeg) * uSeg + 0.5 * uSeg;   // 以一段（约 6 米）为单位整体升起
           float r = railReveal(segS, ${shift}, glow);
           float drop = (1.0 - r) * (1.0 - r) * 42.0;
           ${inst ? `transformed *= max(r, 0.0001); transformed.y -= drop;`
                  : `transformed = aC + (transformed - aC) * max(r, 0.0001) - vec3(0.0, drop, 0.0);`}
-          vGlow = glow;
+          vGlow = glow; vRev = r;
         }` : ''}
         ${sway > 0 ? `{
           vec4 wp0 = vec4(transformed, 1.0);
@@ -112,9 +119,10 @@ export function wc(o = {}) {
           #endif
           vWPos = (modelMatrix * wp).xyz; }`);
     sh.fragmentShader = sh.fragmentShader
+      .replace('#include <clipping_planes_fragment>', rail ? 'if (vRev < 0.04) discard;\n#include <clipping_planes_fragment>' : '#include <clipping_planes_fragment>')
       .replace('#include <common>', `#include <common>
         uniform float uTime; uniform vec3 uHazeColor; varying vec3 vWPos;
-        ${rail ? 'varying float vGlow;' : ''}
+        ${rail ? 'varying float vGlow; varying float vRev;' : ''}
         ${GLSL_NOISE}`)
       .replace('#include <fog_fragment>', `{
           vec3 col = gl_FragColor.rgb;

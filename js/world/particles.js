@@ -35,7 +35,7 @@ export class Swarm {
       uShape: { value: o.shape ?? 0 },
       uOpacity: { value: o.opacity ?? 1 },
       uSwirl: { value: o.swirl ?? 0 },
-      uFogColor: G.fogColor, uFogNear: G.fogNear, uFogFar: G.fogFar,
+      uFogColor: G.fogColor, uFogNear: G.fogNear, uFogFar: G.fogFar, uLightTint: G.lightTint, uTintK: { value: o.additive ? 0 : 1 },
       uPx: { value: innerHeight },
     };
     const mat = new THREE.ShaderMaterial({
@@ -57,7 +57,7 @@ export class Swarm {
           vFog = smoothstep(uFogNear, uFogFar, -mv.z);
           vR = aRand; vRot = uTime*(aRand.y - 0.5)*3.0 + aRand.z*6.28;
         }`,
-      fragmentShader: `uniform vec3 uColorA, uColorB, uFogColor; uniform float uShape, uOpacity, uTime;
+      fragmentShader: `uniform vec3 uColorA, uColorB, uFogColor, uLightTint; uniform float uShape, uOpacity, uTime, uTintK;
         varying vec4 vR; varying float vFade; varying float vFog; varying float vRot;
         void main(){
           vec2 c = gl_PointCoord - 0.5;
@@ -69,6 +69,7 @@ export class Swarm {
           } else if (uShape < 1.5) { a = smoothstep(0.5, 0.2, length(c)); }
           else { a = pow(smoothstep(0.5, 0.0, length(c)), 1.6) * (0.55 + 0.45*sin(uTime*2.0 + vR.x*30.0)); }
           vec3 col = mix(uColorA, uColorB, vR.x);
+          col *= mix(vec3(1.0), uLightTint, uTintK);
           col = mix(col, uFogColor, vFog);
           float al = a * vFade * uOpacity;
           if (al < 0.01) discard;
@@ -132,15 +133,15 @@ export class Puffs {
 
 // ---------------- 瀑布 ----------------
 let _wfMat = null;
-function waterfallMat() {
+export function waterfallMat() {
   if (_wfMat) return _wfMat;
   _wfMat = new THREE.ShaderMaterial({
     transparent: true, depthWrite: false, side: THREE.DoubleSide,
-    uniforms: { uTime: G.time, uFogColor: G.fogColor, uFogNear: G.fogNear, uFogFar: G.fogFar,
+    uniforms: { uTime: G.time, uFogColor: G.fogColor, uFogNear: G.fogNear, uFogFar: G.fogFar, uLightTint: G.lightTint,
       uDeep: { value: new THREE.Color(0x9cc6dc) }, uFoam: { value: new THREE.Color(0xfbfdff) } },
     vertexShader: `uniform float uFogNear, uFogFar; varying vec2 vUv; varying float vFog;
       void main(){ vUv = uv; vec4 mv = modelViewMatrix * vec4(position,1.0); gl_Position = projectionMatrix*mv; vFog = smoothstep(uFogNear, uFogFar, -mv.z); }`,
-    fragmentShader: `uniform float uTime; uniform vec3 uDeep, uFoam, uFogColor; varying vec2 vUv; varying float vFog;
+    fragmentShader: `uniform float uTime; uniform vec3 uDeep, uFoam, uFogColor, uLightTint; varying vec2 vUv; varying float vFog;
       float h(vec2 p){ return fract(sin(dot(p, vec2(41.3, 289.1)))*43758.5); }
       float n(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f); return mix(mix(h(i),h(i+vec2(1,0)),f.x), mix(h(i+vec2(0,1)),h(i+vec2(1,1)),f.x), f.y); }
       void main(){
@@ -149,7 +150,7 @@ function waterfallMat() {
         vec3 col = mix(uDeep, uFoam, smoothstep(0.35, 0.8, s));
         float edge = smoothstep(0.0, 0.2, vUv.x) * smoothstep(1.0, 0.8, vUv.x);
         float a = edge * smoothstep(0.0, 0.55, vUv.y) * (0.55 + 0.45*s);
-        col = mix(col, uFogColor, vFog);
+        col = mix(col * uLightTint, uFogColor, vFog);
         gl_FragColor = vec4(col, a * 0.9);
       }`,
   });

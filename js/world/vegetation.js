@@ -34,9 +34,9 @@ void main(){
   vFog = smoothstep(uFogNear, uFogFar, -mv.z);
 }`;
 const GRASS_FS = /* glsl */ `
-uniform vec3 uFogColor;
+uniform vec3 uFogColor, uLightTint;
 varying vec3 vColor; varying float vFog;
-void main(){ gl_FragColor = vec4(mix(vColor, uFogColor, vFog), 1.0); }`;
+void main(){ gl_FragColor = vec4(mix(vColor * uLightTint, uFogColor, vFog), 1.0); }`;
 
 function bladeGeometry() {
   const g = new THREE.InstancedBufferGeometry();
@@ -75,7 +75,7 @@ export function grassField(isl, o) {
   const mat = new THREE.ShaderMaterial({
     vertexShader: GRASS_VS, fragmentShader: GRASS_FS, side: THREE.DoubleSide,
     uniforms: {
-      uTime: G.time, uPlayer: G.playerPos, uFogColor: G.fogColor, uFogNear: G.fogNear, uFogFar: G.fogFar,
+      uTime: G.time, uPlayer: G.playerPos, uFogColor: G.fogColor, uLightTint: G.lightTint, uFogNear: G.fogNear, uFogFar: G.fogFar,
       uBase: { value: new THREE.Color(o.base) }, uTip: { value: new THREE.Color(o.tip) }, uTip2: { value: new THREE.Color(o.tip2 ?? o.tip) },
     },
   });

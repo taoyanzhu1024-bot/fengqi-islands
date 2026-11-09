@@ -38,15 +38,16 @@ export class RideController {
 
   /** 站台交互点的提示文字 */
   stationLabel(st) {
-    const tr = this.train;
+    const tr = st.rail.train, w = tr.words;
     if (this.state !== RIDE.ON_FOOT || this.cooldown > 0) return null;
-    if (tr.stopped && tr.stationIdx === st.index) return '按 <b>E</b> 乘坐云轨列车';
-    if (tr.state === 'arriving' && tr.targetIdx === st.index) return '列车正在进站……';
-    return '按 <b>E</b> 呼叫云轨列车';
+    if (tr.stopped && tr.stationIdx === st.index) return w.board;
+    if ((tr.state === 'arriving' || (tr.state === 'running' && !tr.riding)) && tr.targetIdx === st.index) return w.coming;
+    return w.call;
   }
   stationAction(st) {
-    const tr = this.train;
+    const tr = st.rail.train;
     if (this.state !== RIDE.ON_FOOT || this.cooldown > 0) return;
+    this.train = tr;                 // 切换到该站所在线路的列车
     if (tr.stopped && tr.stationIdx === st.index) this.board(st);
     else tr.interact(st);
   }
@@ -58,7 +59,7 @@ export class RideController {
     this.set(RIDE.BOARDING);
     this.rig.enterTrain();
     this.audio?.sfx('door');
-    this.hud.toast(`欢迎乘坐「风栖号」· ${st.name} 发车`);
+    this.hud.toast(this.train.words.welcome(st));
   }
 
   alight() {
@@ -111,17 +112,18 @@ export class RideController {
         p.heading = tr.heading;
         const approaching = tr.state === 'running' && tr.distAhead(tr.stopS(tr.targetIdx)) < 260;
         if (approaching && this.state === RIDE.RIDING) this.set(RIDE.ARRIVING);
+        const w = tr.words;
         if (tr.state === 'dwell') {
-          prompt = '按 <b>E</b> 下车　<b>空格</b> 立即发车';
+          prompt = `按 <b>E</b> ${w.alight}　<b>空格</b> 立即${w.depart}`;
           if (input.take('KeyE')) this.alight();
           else if (input.take('Space')) tr.departNow();
         } else {
-          if (this.state === RIDE.ARRIVING) prompt = `即将到达 ${tr.nextStation.name} · 请等待列车停稳`;
+          if (this.state === RIDE.ARRIVING) prompt = `即将到达 ${tr.nextStation.name} · ${w.settle}`;
           if (input.take('KeyE')) {
             // 行驶中不能下车：改为在下一站停靠
             const changed = tr.destination !== null && tr.destination !== tr.targetIdx;
             tr.requestNextStop();
-            this.hud.toast(changed ? `请等待列车到站 · 已改为在 ${tr.nextStation.name} 停靠` : `请等待列车到站 · 下一站 ${tr.nextStation.name}`, 2.5);
+            this.hud.toast(changed ? `${w.wait} · 已改为在 ${tr.nextStation.name} 停靠` : `${w.wait} · 下一站 ${tr.nextStation.name}`, 2.5);
           }
         }
         if (this.state === RIDE.ARRIVING && tr.state === 'dwell') this.set(RIDE.RIDING);

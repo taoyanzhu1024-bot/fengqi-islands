@@ -4,6 +4,7 @@ import { GEO, T } from '../../core/batcher.js';
 import { smoothstep } from '../../core/utils.js';
 import { PALETTE as P } from '../../config.js';
 import * as pr from '../props.js';
+import { DETAILS } from './details.js';
 import { grassField, flowerField } from '../vegetation.js';
 import { waterfall, Swarm } from '../particles.js';
 
@@ -38,6 +39,8 @@ export const mainTheme = {
     isl.addPath([cross, [-6, -30], [v[0] * 0.7, v[1] * 0.7], [v[0], v[1]]]);
     isl.addPath([[-6, -30], [d[0] * 0.6, d[1] * 0.75], [d[0], d[1]]]);
     isl.addPath([cross, [-25, 12], [MILL[0] + 4, MILL[1] - 2]]);
+    const wst = isl.stations?.[1];   // 天空支线 · 风栖西站
+    if (wst) isl.addPath([cross, [-30, -8], [wst.local.x * 0.8, wst.local.z - 4], [wst.local.x, wst.local.z]]);
     isl.addStream([[-34, 34], [-42, 46], [-50, 58], [-60, 70]]);
     this.cross = cross;
   },
@@ -112,6 +115,7 @@ export const mainTheme = {
     ctx.mist(waterfall(isl, Math.atan2(70, -60), { width: 3.5, len: 95 }), 40);
     ctx.mist(waterfall(isl, 2.75, { width: 2.2, len: 70 }), 26);
 
+    DETAILS.main(isl, ctx, b, this);
     ctx.scene.add(grassField(isl, { count: 26000, base: 0x7a9670, tip: 0xb9cd8e, tip2: 0xd9d59c, h: [0.35, 0.85] }));
     ctx.scene.add(flowerField(isl, { count: 1400, colors: [P.cream, P.coralSoft, P.butter, P.lavender, 0xffffff] }));
   },

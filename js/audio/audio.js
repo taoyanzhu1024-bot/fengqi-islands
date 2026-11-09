@@ -187,6 +187,10 @@ export class AudioManager {
         this.burst(2200, { q: 0.6, a: 0.05, d: 1.0, vol: 0.06 });
         break;
       }
+      case 'horn': // 飞艇汽笛：低沉的双音长鸣
+        for (const [f, v, w] of [[196, 0.08, 0], [247, 0.06, 0], [196, 0.07, 1.5], [165, 0.06, 1.5]]) this.tone(f, { type: 'triangle', a: 0.2, d: 1.2, vol: v, when: w });
+        this.burst(300, { type: 'lowpass', a: 0.2, d: 1.2, vol: 0.05 });
+        break;
       case 'brake': this.burst(3800, { q: 6, a: 0.2, d: 1.6, vol: 0.06, dest: T, sweep: 0.7 }); break;
       case 'arrive': this.bell(midi(79), 0.1); this.bell(midi(76), 0.1, undefined); setTimeout(() => this.ready && this.bell(midi(72), 0.1), 420); break;
       case 'door': this.burst(600, { q: 1, a: 0.03, d: 0.35, vol: 0.12, sweep: 1.8 }); this.tone(320, { d: 0.08, vol: 0.06, when: 0.36 }); break;
@@ -240,6 +244,8 @@ export class AudioManager {
     this.trainBus.gain.setTargetAtTime(v.onTrain ? 0.7 + (1 - v.interior) * 0.3 : 0.8, t, 0.3);
     set(L.glide.g, v.glide * 0.12, 0.3);
     set(L.prop.g, (v.propeller ?? 0) * 0.05, 0.4);
+    L.prop.o.frequency.setTargetAtTime(24 + (v.propRate ?? 0.5) * 42, t, 0.6);   // 螺旋桨嗡鸣随油门升高
+    L.prop.f.frequency.setTargetAtTime(180 + (v.propRate ?? 0.5) * 320, t, 0.6);
     // 车轮“咔哒”声：间隔随速度缩短
     if (sp > 0.05 && near > 0.05) {
       this.clackAcc += v.trainSpeed * dt;

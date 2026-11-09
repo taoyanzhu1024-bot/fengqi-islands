@@ -50,20 +50,21 @@ function meshFrom(b, mats) {
 }
 
 // ---------------- 车轮 ----------------
+const wheelCache = new Map();
+/** 车轮：轮箍 + 轮缘 + 轮毂 + 辐条合并为单个网格（每个车轮 1 个 draw call） */
 function wheelMesh(r, spokes = 8) {
-  const g = new THREE.Group();
-  const tire = new THREE.Mesh(new THREE.CylinderGeometry(r, r, 0.14, 20).rotateZ(Math.PI / 2), TRAIN_MATS.wheel);
-  const rim = new THREE.Mesh(new THREE.TorusGeometry(r * 0.82, r * 0.06, 6, 20).rotateY(Math.PI / 2), TRAIN_MATS.hub);
-  const hub = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.2, r * 0.2, 0.2, 10).rotateZ(Math.PI / 2), TRAIN_MATS.hub);
-  g.add(tire, rim, hub);
-  for (let i = 0; i < spokes; i++) {
-    const s = new THREE.Mesh(new THREE.BoxGeometry(0.05, r * 1.6, 0.05), TRAIN_MATS.hub);
-    s.rotation.x = (i / spokes) * Math.PI;
-    s.position.x = 0.075;
-    g.add(s);
+  const key = r + '|' + spokes;
+  if (!wheelCache.has(key)) {
+    const b = new Batcher(), I = new THREE.Matrix4();
+    b.add('solid', new THREE.CylinderGeometry(r, r, 0.14, 20).rotateZ(Math.PI / 2), COL.blueDeep, I);
+    b.add('solid', new THREE.TorusGeometry(r * 0.82, r * 0.06, 6, 20).rotateY(Math.PI / 2), COL.gold, T(I, 0.075, 0, 0));
+    b.add('solid', new THREE.CylinderGeometry(r * 0.2, r * 0.2, 0.2, 10).rotateZ(Math.PI / 2), COL.gold, I);
+    for (let i = 0; i < spokes; i++) b.add('solid', GEO.box, COL.gold, T(I, 0.075, 0, 0, (i / spokes) * Math.PI, 0, 0, 0.05, r * 1.6, 0.05));
+    wheelCache.set(key, b.build({ solid: TRAIN_MATS.shell })[0].geometry);
   }
-  g.traverse((o) => { o.castShadow = true; });
-  return g;
+  const m = new THREE.Mesh(wheelCache.get(key), TRAIN_MATS.shell);
+  m.castShadow = true;
+  return m;
 }
 
 // ---------------- 客车 ----------------
@@ -122,9 +123,27 @@ function buildCoach(index, opts = {}) {
   // —— 端墙（带贯通门） ——
   for (const sz of [-1, 1]) {
     const z = sz * L / 2;
+    const tail = opts.tail && sz < 0;      // 末节车厢尾端：封闭端墙 + 观景窗 + 尾灯
     for (const sx of [-1, 1]) ext.add('shell', GEO.box, COL.cream, T(I, sx * (hw - 0.45), (yLow0 + yTop) / 2, z, 0, 0, 0, 0.9, yTop - yLow0, 0.08));
     ext.add('shell', GEO.box, COL.cream, T(I, 0, yTop - 0.15, z, 0, 0, 0, 1.0, 0.3, 0.08));
-    ext.add('shellFlat', GEO.box, 0x5a5560, T(I, 0, FLOOR + 1.05, z + sz * 0.42, 0, 0, 0, 1.3, 2.2, 0.75)); // 风挡折棚
+    if (tail) {
+      ext.add('shell', GEO.box, COL.sage, T(I, 0, (yLow0 + yLow1) / 2, z, 0, 0, 0, 1.0, yLow1 - yLow0, 0.08));
+      ext.add('shell', GEO.box, COL.cream, T(I, 0, yWin1 - 0.05, z, 0, 0, 0, 1.0, yTop - yWin1 - 0.2, 0.08));
+      glass.add('glass', GEO.box, COL.glass, T(I, 0, (yLow1 + yWin1) / 2, z, 0, 0, 0, 1.0, yWin1 - yLow1, 0.02));
+      ext.add('shell', ARCH, COL.gold, T(I, 0, yWin1 - 0.3, z - 0.05, 0, 0, 0, 0.5, 0.45, 1.5));
+      ext.add('shell', GEO.box, COL.gold, T(I, 0, yLow1, z - 0.06, 0, 0, 0, 1.1, 0.06, 0.08));
+      for (const sx of [-1, 1]) {
+        ext.add('shell', GEO.cyl8, COL.gold, T(I, sx * 0.95, 0.95, z - 0.1, Math.PI / 2, 0, 0, 0.13, 0.2, 0.13));
+        lamp.add('lamp', GEO.sphereLo, 0xf0907a, T(I, sx * 1.1, FLOOR + 0.55, z - 0.07, 0, 0, 0, 0.11));
+      }
+      // 尾部小阳台
+      ext.add('shell', GEO.box, COL.woodDark, T(I, 0, 1.05, z - 0.55, 0, 0, 0, W - 0.3, 0.08, 1.0));
+      for (const sx of [-1, 0, 1]) ext.add('shell', GEO.cyl6, COL.gold, T(I, sx * 1.15, 1.55, z - 1.0, 0, 0, 0, 0.03, 1.0, 0.03));
+      ext.add('shell', GEO.box, COL.gold, T(I, 0, 2.05, z - 1.0, 0, 0, 0, W - 0.2, 0.05, 0.05));
+    } else {
+      ext.add('shellFlat', GEO.box, 0x8a7f78, T(I, 0, FLOOR + 1.05, z + sz * 0.42, 0, 0, 0, 1.3, 2.2, 0.75)); // 风挡折棚
+      for (let k = 0; k < 5; k++) ext.add('shell', GEO.box, 0x6e6466, T(I, 0, FLOOR + 1.05, z + sz * (0.1 + k * 0.15), 0, 0, 0, 1.36, 2.26, 0.03));
+    }
     ext.add('shell', GEO.cyl8, COL.gold, T(I, 0.9, 0.9, z + sz * 0.12, Math.PI / 2, 0, 0, 0.1, 0.25, 0.1));
     ext.add('shell', GEO.cyl8, COL.gold, T(I, -0.9, 0.9, z + sz * 0.12, Math.PI / 2, 0, 0, 0.1, 0.25, 0.1));
     lamp.add('lamp', GEO.sphereLo, COL.lamp, T(I, hw - 0.25, yTop - 0.2, z + sz * 0.05, 0, 0, 0, 0.09));
@@ -135,7 +154,10 @@ function buildCoach(index, opts = {}) {
   roof.scale(1, 0.55, 1);
   ext.add('shell', roof, COL.teal, T(I, 0, yTop - roofR * 0.55 * Math.cos(0.925) + 0.02, 0));
   ext.add('shell', GEO.box, COL.cream, T(I, 0, yTop + 0.02, 0, 0, 0, 0, W + 0.12, 0.08, L + 0.3));
-  for (let z = -L / 2 + 1; z < L / 2; z += 2.2) ext.add('shell', GEO.cyl8, COL.copper, T(I, 0, yTop + 0.62, z, 0, 0, 0, 0.16, 0.18, 0.16)); // 通风帽
+  for (let z = -L / 2 + 1.6; z < L / 2 - 1; z += 3.2) {          // 低矮的铜制通风罩
+    ext.add('shell', GEO.dome, COL.copper, T(I, 0, yTop + 0.55, z, 0, 0, 0, 0.22, 0.12, 0.34));
+    ext.add('shell', GEO.box, COL.gold, T(I, 0, yTop + 0.56, z, 0, 0, 0, 0.46, 0.03, 0.05));
+  }
   const ceil = archGeo(roofR - 0.1, L - 0.1, 1.8);
   ceil.scale(1, 0.5, 1);
   inn.add('interior', ceil, COL.cream, T(I, 0, yTop - (roofR - 0.1) * 0.5 * Math.cos(0.9) - 0.02, 0));
@@ -332,18 +354,28 @@ function buildLoco() {
 // 状态：idle（停站等待）→ arriving（被呼叫进站）→ dwell（停靠）→ running（运行）
 // ============================================================
 export class Train {
-  constructor(rail) {
+  constructor(rail, opts = {}) {
     this.rail = rail;
-    this.group = new THREE.Group(); this.group.name = 'train:风栖号';
-    this.cars = [buildLoco(), buildCoach(1), buildCoach(2), buildCoach(3)];
+    this.name = opts.name ?? (rail.name === 'branch' ? '风栖号 · 天空支线' : '风栖号');
+    this.group = new THREE.Group(); this.group.name = 'train:' + this.name;
+    const nCoach = opts.cars ?? 3;
+    this.cars = [buildLoco()];
+    for (let i = 1; i <= nCoach; i++) this.cars.push(buildCoach(i, { tail: i === nCoach }));
+    this.words = {
+      board: '按 <b>E</b> 乘坐云轨列车', call: '按 <b>E</b> 呼叫云轨列车', coming: '列车正在进站……',
+      alight: '下车', depart: '发车', wait: '请等待列车到站', settle: '请等待列车停稳',
+      welcome: (st) => `欢迎乘坐「${this.name}」· ${st.name} 发车`,
+    };
+    this.dir = 1;                // 往返线：+1 驶向弧长增加方向，-1 反向（推拉运行，车头始终朝 +s）
     this.cars.forEach((c) => this.group.add(c));
     this.wheels = this.cars.flatMap((c) => c.userData.wheels);
     this.doors = this.cars.flatMap((c) => c.userData.doors);
+    this.carLen = this.cars.map((c, i) => CAR_LEN[Math.min(i, 3)]);
     this.offsets = [];
     let off = 0;
-    CAR_LEN.forEach((l) => { this.offsets.push(off + l / 2); off += l + GAP; });
+    this.carLen.forEach((l) => { this.offsets.push(off + l / 2); off += l + GAP; });
     this.totalLen = off - GAP;
-    this.rideCar = 2;            // 玩家乘坐第二节客车
+    this.rideCar = Math.min(2, this.cars.length - 1);   // 玩家乘坐的客车
     this.stationIdx = 0;
     this.s = this.stopS(0);
     this.speed = 0;
@@ -372,7 +404,12 @@ export class Train {
   interact(st) {
     if (this.riding || this.state === 'arriving') return;
     if (this.stopped && this.stationIdx === st.index) return;
-    this.s = this.stopS(st.index) - 280;
+    if (this.rail.closed) this.s = this.stopS(st.index) - 280;
+    else {
+      // 往返线：从线路内侧驶来
+      this.dir = st.index === 0 ? -1 : 1;
+      this.s = Math.min(this.rail.length - 1, Math.max(this.totalLen + 1, this.stopS(st.index) - this.dir * 280));
+    }
     this.speed = 15;
     this.targetIdx = st.index;
     this.state = 'arriving';
@@ -389,7 +426,11 @@ export class Train {
     this.events.push({ type: 'toast', text: `目的站已设为 ${this.rail.stations[i].name}` });
   }
   departNow() { if (this.state === 'dwell') this.dwell = 0; }
-  distAhead(target) { const L = this.rail.length; return ((target - this.s) % L + L) % L; }
+  distAhead(target) {
+    if (!this.rail.closed) return Math.max(0, (target - this.s) * this.dir);
+    const L = this.rail.length; return ((target - this.s) % L + L) % L;
+  }
+  nextIndex(i) { return (i + 1) % this.rail.stations.length; }
 
   update(dt, puffs) {
     const L = this.rail.length;
@@ -397,8 +438,9 @@ export class Train {
       this.dwell -= dt;
       if (this.dwell <= 0) {
         this.state = 'running';
-        this.targetIdx = this.destination ?? (this.stationIdx + 1) % this.rail.stations.length;
-        if (this.targetIdx === this.stationIdx) this.targetIdx = (this.stationIdx + 1) % this.rail.stations.length;
+        this.targetIdx = this.destination ?? this.nextIndex(this.stationIdx);
+        if (this.targetIdx === this.stationIdx) this.targetIdx = this.nextIndex(this.stationIdx);
+        if (!this.rail.closed) this.dir = this.stopS(this.targetIdx) > this.s ? 1 : -1;
         this.announced = false;
         this.doorsOpen = false;
         this.events.push({ type: 'depart' });
@@ -408,7 +450,7 @@ export class Train {
       const vT = Math.min(this.vmax, Math.sqrt(2 * this.decel * Math.max(d - 0.3, 0)) + 0.4);
       this.speed += Math.max(-this.decel * 2.2 * dt, Math.min(this.accel * dt, vT - this.speed));
       const ds = Math.min(this.speed * dt, d);
-      this.s = (this.s + ds) % L;
+      this.s = this.rail.closed ? (this.s + ds) % L : this.s + ds * this.dir;
       if (this.riding && !this.announced && d < 420) { this.announced = true; this.events.push({ type: 'approach', station: this.rail.stations[this.targetIdx] }); }
       if (d - ds < 0.05) {
         this.s = this.stopS(this.targetIdx);
@@ -433,7 +475,7 @@ export class Train {
       this.smokeT = moving ? Math.max(0.07, 0.35 - this.speed * 0.012) : 0.9;
       const p = this.cars[0].userData.smoke.clone().applyMatrix4(this.cars[0].matrixWorld);
       // 蒸汽随车前进方向带走一部分速度，主要向上飘散，避免盖住车顶
-      const carry = this._f.tan.clone().multiplyScalar(this.speed * 0.55);
+      const carry = this._f.tan.clone().multiplyScalar(this.speed * 0.55 * this.dir);
       puffs.emit(p, carry.add(new THREE.Vector3((Math.random() - 0.5) * 0.6, 4.5 + Math.random() * 1.5, (Math.random() - 0.5) * 0.6)), moving ? 0.9 : 0.8, moving ? 2.2 : 2.4);
     }
   }
@@ -442,7 +484,7 @@ export class Train {
     const f = this._f, f2 = this._f2;
     this.cars.forEach((car, i) => {
       const sMid = this.s - this.offsets[i];
-      const half = CAR_LEN[i] / 2 - 2.3;     // 转向架位置 → 弯道上车厢自然内切
+      const half = this.carLen[i] / 2 - 2.3;     // 转向架位置 → 弯道上车厢自然内切
       this.rail.frameAt(sMid + half, f);
       const front = f.pos.clone();
       this.rail.frameAt(sMid - half, f2);
@@ -455,7 +497,7 @@ export class Train {
 
   animateParts(dt) {
     // 车轮按线速度转动；连杆跟随驱动轮曲柄
-    this.wheelAngle += this.speed * dt;
+    this.wheelAngle += this.speed * dt * this.dir;
     for (const w of this.wheels) w.obj.rotation.x = this.wheelAngle / w.r;
     const loco = this.cars[0].userData;
     const a = this.wheelAngle / 0.72;
@@ -482,4 +524,7 @@ export class Train {
   get heading() { const t = this._f.tan; return Math.atan2(t.x, t.z); }
   get tangent() { return this._f.tan; }
   get midPosition() { return this.cars[1].position; }
+  get focusPos() { return this.cars[Math.min(1, this.cars.length - 1)].position; }
+  /** 行进方向（往返线返程时与车头朝向相反） */
+  get moveTangent() { return this._mt ? this._mt.copy(this._f.tan).multiplyScalar(this.dir) : (this._mt = this._f.tan.clone().multiplyScalar(this.dir)); }
 }

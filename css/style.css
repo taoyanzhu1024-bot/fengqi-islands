@@ -106,3 +106,7 @@ body.cine #brand, body.cine #mapwrap, body.cine #region, body.cine #prompt, body
   transition: opacity 1s; }
 #audioHint.hide { opacity: 0; }
 body.cine #settings { opacity: 0.25; }
+
+#clock { position: absolute; right: 30px; top: 86px; font-family: var(--serif); font-size: 12px; letter-spacing: 3px;
+  color: rgba(251, 245, 232, .9); text-shadow: 0 1px 6px rgba(80, 70, 110, .6); }
+body.cine #clock { opacity: 0; }

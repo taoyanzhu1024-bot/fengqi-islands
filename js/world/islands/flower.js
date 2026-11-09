@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { smoothstep } from '../../core/utils.js';
 import { PALETTE as P } from '../../config.js';
 import * as pr from '../props.js';
+import { DETAILS } from './details.js';
 import { grassField, flowerField } from '../vegetation.js';
 import { waterfall, Swarm } from '../particles.js';
 
@@ -72,6 +73,7 @@ export const flowerTheme = {
     ctx.mist(waterfall(isl, 2.1, { width: 3, len: 80 }), 34);
     ctx.mist(waterfall(isl, -2.4, { width: 3.5, len: 90 }), 36);
 
+    DETAILS.flower(isl, ctx, b, this);
     ctx.scene.add(grassField(isl, { count: 16000, base: 0x8aa477, tip: 0xc4d496, tip2: 0xe4dca2, h: [0.3, 0.7] }));
     ctx.scene.add(flowerField(isl, {
       count: 14000, size: 0.15, lift: 0.5,
