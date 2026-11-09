@@ -38,6 +38,17 @@ export class Physics {
     return best;
   }
 
+  /** 脚下表面对象（用于脚步声材质判断） */
+  surfaceAt(x, z, y, step = 0.5) {
+    let best = null, bh = -Infinity;
+    for (const s of this.surfaces) {
+      if (!s.contains2(x, z)) continue;
+      const h = s.heightAt(x, z);
+      if (h !== null && h <= y + step && h > bh) { bh = h; best = s; }
+    }
+    return best;
+  }
+
   /** 该点最高表面（相机避免钻地） */
   topAt(x, z) {
     let best = -Infinity;

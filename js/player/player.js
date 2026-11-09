@@ -45,7 +45,7 @@ export class Player {
    * @param camYaw 相机偏航（决定移动方向）
    */
   update(dt, input, camYaw, events) {
-    if (this.state === 'train' || this.state === 'locked') { this.char.animate(dt, { speed: 0, grounded: true, onTrain: this.state === 'train' }); this.sync(); return; }
+    if (this.state === 'train' || this.state === 'locked') { this.char.animate(dt, { speed: 0, grounded: true, onTrain: this.state === 'train', sitting: this.state === 'train' && this.sitting }); this.sync(); return; }
     const ph = this.physics;
     const f = input.isDown('KeyW', 'ArrowUp') - input.isDown('KeyS', 'ArrowDown');
     const s = input.isDown('KeyD', 'ArrowRight') - input.isDown('KeyA', 'ArrowLeft');
@@ -67,6 +67,8 @@ export class Player {
       }
       this.vel.y = damp(this.vel.y, sink, this.inUpdraft ? 1.8 : 1.2, dt);
       if (input.was('KeyG')) { this.state = 'air'; events.push({ type: 'glideEnd' }); }
+      if (this.inUpdraft && !this._wasUpdraft) events.push({ type: 'updraft' });
+      this._wasUpdraft = this.inUpdraft;
     } else {
       // 地面/空中：相对相机方向移动
       const fx = -Math.sin(camYaw), fz = -Math.cos(camYaw);
@@ -79,7 +81,7 @@ export class Player {
       this.vel.x = damp(this.vel.x, mx * target, ctl, dt);
       this.vel.z = damp(this.vel.z, mz * target, ctl, dt);
       if (ml > 0) this.heading = dampAngle(this.heading, Math.atan2(mx, mz), 12, dt);
-      if (this.grounded && input.was('Space')) { this.vel.y = JUMP; this.grounded = false; this.state = 'air'; }
+      if (this.grounded && input.was('Space')) { this.vel.y = JUMP; this.grounded = false; this.state = 'air'; events.push({ type: 'jump' }); }
       else if (!this.grounded && (input.was('KeyG') || input.was('Space')) && this.vel.y < 3) {
         this.state = 'glide';
         this.vel.y = Math.max(this.vel.y, -2);
@@ -127,6 +129,10 @@ export class Player {
 
     this.speed = Math.hypot(this.vel.x, this.vel.z);
     this.char.animate(dt, { speed: this.speed, grounded: this.grounded, gliding: this.state === 'glide', bank: this.bank });
+    // 脚步：步态相位每过半个周期落一次脚
+    const stepI = Math.floor(this.char.phase / Math.PI);
+    if (this.grounded && this.speed > 0.8 && stepI !== this._stepI) events.push({ type: 'step' });
+    this._stepI = stepI;
     this.sync();
   }
 

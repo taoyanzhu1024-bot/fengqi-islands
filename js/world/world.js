@@ -198,8 +198,9 @@ export class World {
     return best;
   }
 
-  update(dt, t, camera) {
+  update(dt, t, camera, extra = {}) {
     for (const f of this.anim) f(dt, t);
+    this.rail.update(dt, this.puffs, extra.audio);
     this.clouds.update(dt, camera);
     // 植被按距离显隐（远处草叶小于一个像素，没必要绘制）
     for (const o of this.lods) o.visible = o.userData.lod.c.distanceTo(camera.position) < o.userData.lod.d;

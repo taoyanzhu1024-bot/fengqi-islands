@@ -102,7 +102,10 @@ export class Character {
     const sw = moving ? Math.sin(this.phase) * Math.min(0.9, 0.25 + speed * 0.07) : 0;
     const k = 1 - Math.exp(-14 * dt);
     const lerpR = (o, v) => (o.rotation.x += (v - o.rotation.x) * k);
-    if (!grounded && !gliding) {
+    if (s.sitting) {
+      lerpR(this.legs[0], -1.45); lerpR(this.legs[1], -1.45);
+      lerpR(this.arms[0], -0.55); lerpR(this.arms[1], -0.5);
+    } else if (!grounded && !gliding) {
       lerpR(this.legs[0], -0.6); lerpR(this.legs[1], 0.3);
       lerpR(this.arms[0], -1.6); lerpR(this.arms[1], -1.4);
     } else if (gliding) {
