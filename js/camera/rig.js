@@ -35,6 +35,13 @@ export class CameraRig {
 
   get dragging() { return performance.now() / 1000 - this.lastDrag < 1.6; }
 
+  nextTrainView() { this.trainView = (this.trainView + 1) % 4; this.trainYaw = 0; }
+  trainViewName() { return ['远景跟随', '侧面全景', '观景甲板', '高空环绕'][this.trainView]; }
+  interiorAmount() { return this.mode === 'train' && this.trainView === 2 ? 1 : 0.3; }
+
+  enterTrain() { this.mode = 'train'; this.trainYaw = 0; this.snap = true; }
+  exitTrain(heading) { this.mode = 'follow'; this.yaw = heading + Math.PI; this.pitch = 0.22; this.snap = true; }
+
   /** 播放镜头序列 shots: [{ from:[V,V], look:[V,V], dur, title, sub, fov }] */
   play(shots, onShot, onDone) {
     this.shots = shots; this.shotI = 0; this.shotT = 0;

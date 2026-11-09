@@ -87,3 +87,22 @@ body.cine #brand, body.cine #mapwrap, body.cine #region, body.cine #prompt, body
 #loading .l-bar i { display: block; height: 100%; width: 0; background: var(--gold); transition: width .3s; }
 #error { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); max-width: 70vw; padding: 16px 20px; display: none;
   background: rgba(251, 245, 232, .95); border-radius: 12px; font-size: 13px; color: #8a4a3a; white-space: pre-wrap; pointer-events: auto; }
+
+/* ---------- V2：设置面板 ---------- */
+#settings { position: absolute; right: 24px; bottom: 22px; pointer-events: auto; text-align: right; }
+#settingsBtn { border: 0; padding: 7px 14px; border-radius: 999px; cursor: pointer; font-family: var(--serif); letter-spacing: 2px;
+  font-size: 13px; color: #55735e; background: rgba(251, 245, 232, .72); box-shadow: 0 4px 16px rgba(90, 80, 120, .14); }
+#settings .panel { display: none; text-align: left; margin-bottom: 8px; width: 250px; padding: 12px 14px; border-radius: 14px;
+  background: rgba(251, 245, 232, .9); backdrop-filter: blur(8px); box-shadow: 0 6px 22px rgba(90, 80, 120, .18); font-size: 12.5px; }
+#settings.open .panel { display: block; position: absolute; right: 0; bottom: 38px; }
+#settings .sec { font-family: var(--serif); letter-spacing: 3px; color: #6f8f74; margin: 6px 0 4px; font-size: 13px; }
+#settings label { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 4px 0; color: #5b5660; }
+#settings input[type=range] { width: 130px; accent-color: #6f8f74; }
+#settings select { font-size: 12px; border-radius: 6px; border: 1px solid #cfc3ad; background: #fffaf0; color: #5b5660; }
+#settings .astate { font-size: 11px; color: #9a8f86; margin: 2px 0 4px; }
+#settings .times { display: flex; flex-wrap: wrap; gap: 4px; }
+#settings .times button { border: 0; border-radius: 8px; padding: 3px 8px; font-size: 12px; cursor: pointer; background: rgba(111, 143, 116, .15); color: #4f6a55; }
+#audioHint { position: absolute; right: 24px; bottom: 62px; font-size: 12px; color: var(--cream); text-shadow: 0 1px 6px rgba(80, 70, 110, .6);
+  transition: opacity 1s; }
+#audioHint.hide { opacity: 0; }
+body.cine #settings { opacity: 0.25; }

@@ -212,10 +212,15 @@ export class Railway {
     st.platformCenter = c.clone().setY(top);
     st.boardPoint = st.pos.clone().addScaledVector(toIsl, 3.2).setY(top);
     st.top = top;
+    // 下车锚点候选：站台上靠近车门、远离轨道边缘的位置（由 RideController 逐个校验）
+    st.alightCandidates = [];
+    for (const d of [5.5, 7, 4.5, 9]) for (const a of [0, -4, 4, -8, 8])
+      st.alightCandidates.push(st.pos.clone().addScaledVector(toIsl, d).addScaledVector(st.dir, a).setY(top));
+    st.alightHeading = Math.atan2(toIsl.x, toIsl.z);
     interact.push({
       pos: st.platformCenter, radius: Math.max(width, 14) * 0.8 + 10,
-      label: () => this.train.labelFor(st),
-      action: () => this.train.interact(st),
+      label: () => this.stationLabel?.(st) ?? null,
+      action: () => this.stationAction?.(st),
       priority: 1,
     });
   }
@@ -368,6 +373,11 @@ export class Train {
     this.state = 'arriving';
     this.events.push({ type: 'toast', text: `云轨列车正驶向 ${st.name}` });
   }
+
+  /** 行驶中请求在下一站停靠（取消更远的目的站） */
+  requestNextStop() { if (this.state === 'running') this.destination = null; }
+  openDoors(open) { this.doorsOpen = open; }
+  seatPosition(out) { return this.deckPosition(out); }
 
   board() {
     this.riding = true;
