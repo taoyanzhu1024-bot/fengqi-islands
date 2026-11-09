@@ -1,0 +1,89 @@
+/* 《风栖群岛》极简 HUD：奶油白文字 + 柔和阴影，尽量不打扰画面 */
+:root {
+  --cream: #fbf5e8;
+  --ink: #4e4a52;
+  --sage: #6f8f74;
+  --gold: #d9b45a;
+  --serif: "Noto Serif SC", "Songti SC", "STSong", "SimSun", serif;
+  --sans: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: #d6dcea; font-family: var(--sans); color: var(--ink); }
+#game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; }
+#game:active { cursor: grabbing; }
+#ui { position: fixed; inset: 0; pointer-events: none; }
+
+#brand { position: absolute; left: 28px; top: 22px; transition: opacity .8s; }
+#brand .title { font-family: var(--serif); font-size: 34px; letter-spacing: 8px; color: var(--cream);
+  text-shadow: 0 2px 12px rgba(90, 80, 120, .45), 0 0 2px rgba(90, 80, 120, .5); }
+#brand .subtitle { font-size: 11px; letter-spacing: 3px; color: rgba(251, 245, 232, .9); margin-top: 2px;
+  text-shadow: 0 1px 6px rgba(90, 80, 120, .5); }
+#keys { list-style: none; padding: 10px 14px; margin: 14px 0 0; font-size: 12.5px; line-height: 1.85;
+  color: #5b5660; background: rgba(251, 245, 232, .62); border-radius: 12px; backdrop-filter: blur(6px);
+  box-shadow: 0 4px 18px rgba(90, 80, 120, .12); transition: opacity .5s, transform .5s; }
+#keys b { display: inline-block; min-width: 18px; padding: 0 6px; margin-right: 2px; border-radius: 5px;
+  background: rgba(111, 143, 116, .16); color: #4f6a55; font-weight: 600; text-align: center; }
+#keys.hidden { opacity: 0; transform: translateY(-6px); }
+
+#region { position: absolute; right: 30px; top: 24px; text-align: right; opacity: 0; transform: translateY(-6px);
+  transition: opacity 1s, transform 1s; }
+#region.show { opacity: 1; transform: none; }
+#region .name { font-family: var(--serif); font-size: 26px; letter-spacing: 6px; color: var(--cream);
+  text-shadow: 0 2px 10px rgba(90, 80, 120, .5); }
+#region .sub { font-size: 12px; letter-spacing: 2px; color: rgba(251, 245, 232, .92); margin-top: 4px;
+  text-shadow: 0 1px 6px rgba(90, 80, 120, .6); }
+
+#mapwrap { position: absolute; left: 24px; bottom: 22px; padding: 8px; border-radius: 16px;
+  background: rgba(251, 245, 232, .6); backdrop-filter: blur(6px); box-shadow: 0 4px 18px rgba(90, 80, 120, .12); transition: opacity .6s; }
+#minimap { display: block; }
+.maplabel { font-family: var(--serif); font-size: 11px; letter-spacing: 3px; text-align: center; color: #7a7064; margin-top: 2px; }
+
+#prompt { position: absolute; left: 50%; bottom: 13%; transform: translate(-50%, 8px); padding: 9px 22px;
+  border-radius: 999px; font-size: 15px; letter-spacing: 1px; color: #4e4a52; background: rgba(251, 245, 232, .78);
+  box-shadow: 0 4px 20px rgba(90, 80, 120, .18); opacity: 0; transition: opacity .35s, transform .35s; white-space: nowrap; }
+#prompt.show { opacity: 1; transform: translate(-50%, 0); }
+#prompt b { display: inline-block; padding: 0 7px; margin: 0 2px; border-radius: 5px; background: var(--sage); color: #fff; }
+
+#trainInfo { position: absolute; left: 50%; top: 22px; transform: translateX(-50%); padding: 8px 20px; border-radius: 14px;
+  background: rgba(251, 245, 232, .7); backdrop-filter: blur(6px); font-size: 13px; text-align: center; line-height: 1.7;
+  box-shadow: 0 4px 18px rgba(90, 80, 120, .12); opacity: 0; transition: opacity .5s; }
+#trainInfo.show { opacity: 1; }
+#trainInfo .t-title { font-family: var(--serif); font-size: 16px; letter-spacing: 3px; color: #55735e; }
+#trainInfo .t-keys { font-size: 11.5px; color: #7d7468; }
+#trainInfo .stops { display: flex; gap: 6px; justify-content: center; margin-top: 3px; }
+#trainInfo .stops span { font-size: 11px; padding: 1px 7px; border-radius: 8px; background: rgba(111, 143, 116, .12); color: #6a6a6a; }
+#trainInfo .stops span.cur { background: var(--sage); color: #fff; }
+#trainInfo .stops span.dst { outline: 1.5px solid var(--gold); }
+
+#toast { position: absolute; left: 50%; top: 30%; transform: translate(-50%, 6px); font-family: var(--serif);
+  font-size: 18px; letter-spacing: 3px; color: var(--cream); text-shadow: 0 2px 12px rgba(80, 70, 110, .6);
+  opacity: 0; transition: opacity .8s, transform .8s; white-space: nowrap; }
+#toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+#letterbox .bar { position: absolute; left: 0; right: 0; height: 0; background: rgba(40, 36, 48, .88); transition: height .9s ease; }
+#letterbox .top { top: 0; }
+#letterbox .bottom { bottom: 0; }
+#letterbox.on .bar { height: 9vh; }
+#letterbox .skip { position: absolute; right: 24px; bottom: 3vh; font-size: 11px; color: rgba(251, 245, 232, .6); opacity: 0; transition: opacity 1s; }
+#letterbox.on .skip { opacity: 1; }
+#caption { position: absolute; left: 0; right: 0; bottom: 14vh; text-align: center; opacity: 0; }
+#caption.show { animation: cap 6.5s ease forwards; }
+#caption .c-title { font-family: var(--serif); font-size: 40px; letter-spacing: 12px; color: var(--cream);
+  text-shadow: 0 3px 18px rgba(70, 60, 100, .6); }
+#caption .c-sub { margin-top: 8px; font-family: var(--serif); font-size: 15px; letter-spacing: 4px; color: rgba(251, 245, 232, .95);
+  text-shadow: 0 2px 10px rgba(70, 60, 100, .6); }
+@keyframes cap { 0% { opacity: 0; transform: translateY(10px); } 15% { opacity: 1; transform: none; } 80% { opacity: 1; } 100% { opacity: 0; } }
+body.cine #brand, body.cine #mapwrap, body.cine #region, body.cine #prompt, body.cine #trainInfo { opacity: 0 !important; }
+
+#fade { position: absolute; inset: 0; background: #f6efe2; opacity: 0; transition: opacity .6s; }
+#fade.on { opacity: 1; }
+
+#loading { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  background: radial-gradient(ellipse at 50% 40%, #fbf3e4 0%, #e3e2ee 60%, #c9d3e6 100%); transition: opacity 1.4s; pointer-events: auto; }
+#loading.done { opacity: 0; pointer-events: none; }
+#loading .l-title { font-family: var(--serif); font-size: 52px; letter-spacing: 18px; color: #6f8f74; }
+#loading .l-sub { margin-top: 10px; font-family: var(--serif); letter-spacing: 4px; color: #9a8f86; font-size: 14px; }
+#loading .l-bar { margin-top: 28px; width: 220px; height: 3px; border-radius: 3px; background: rgba(111, 143, 116, .2); overflow: hidden; }
+#loading .l-bar i { display: block; height: 100%; width: 0; background: var(--gold); transition: width .3s; }
+#error { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); max-width: 70vw; padding: 16px 20px; display: none;
+  background: rgba(251, 245, 232, .95); border-radius: 12px; font-size: 13px; color: #8a4a3a; white-space: pre-wrap; pointer-events: auto; }

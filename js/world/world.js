@@ -1,0 +1,208 @@
+// ============================================================
+// World：组装整个《风栖群岛》世界
+// 顺序：岛屿对象 → 铁路规划（平整站台）→ 主题布置准备 → 网格 → 道具 → 铁路 → 远景
+// ============================================================
+import * as THREE from 'three';
+import { Batcher, GEO, T } from '../core/batcher.js';
+import { BoxSurface } from '../core/physics.js';
+import { mulberry32 } from '../core/noise.js';
+import { ISLANDS, ISLETS, ROUTE, UPDRAFTS, PALETTE as P } from '../config.js';
+import { Island } from './terrain.js';
+import { Railway } from './railway.js';
+import { createSky, createCloudSea, CloudField, scatterClouds } from './sky.js';
+import { distantIslets, skyCastle, birdFlocks } from './background.js';
+import { Swarm, Puffs } from './particles.js';
+import { mainTheme } from './islands/main.js';
+import { flowerTheme } from './islands/flower.js';
+import { portTheme } from './islands/port.js';
+import { forestTheme } from './islands/forest.js';
+import { lighthouseTheme } from './islands/lighthouse.js';
+import { snowTheme } from './islands/snow.js';
+import { isletTheme } from './islands/islet.js';
+
+const THEMES = { main: mainTheme, flower: flowerTheme, port: portTheme, forest: forestTheme, lighthouse: lighthouseTheme, snow: snowTheme, islet: isletTheme };
+
+class DiscSurface {
+  constructor(x, z, r, top) { Object.assign(this, { x, z, r, top, thickness: 1 }); }
+  contains2(x, z) { return Math.abs(x - this.x) < this.r && Math.abs(z - this.z) < this.r; }
+  heightAt(x, z) { return Math.hypot(x - this.x, z - this.z) <= this.r ? this.top : null; }
+}
+
+export class World {
+  constructor(scene, physics) {
+    this.scene = scene;
+    this.physics = physics;
+    this.anim = [];
+    this.interact = [];
+    this.swarms = [];
+    this.updrafts = [];
+    this.viewpoints = {};
+  }
+
+  /** 分步构建（每步之间让出一帧以刷新加载进度） */
+  *build() {
+    const { scene, physics } = this;
+    scene.add(createSky());
+    scene.add(createCloudSea());
+    this.clouds = new CloudField();
+    yield 0.05;
+
+    this.islands = ISLANDS.map((c) => new Island(c, THEMES[c.theme]));
+    this.islets = ISLETS.map((c) => new Island(c, THEMES[c.theme]));
+    this.all = [...this.islands, ...this.islets];
+    const byId = Object.fromEntries(this.all.map((i) => [i.id, i]));
+    this.byId = byId;
+    this.rail = new Railway(ROUTE.map((id) => byId[id]));
+    for (const isl of this.all) isl.theme.prepare?.call(isl.theme, isl);
+    yield 0.12;
+
+    const ctx = this.makeCtx();
+    let k = 0;
+    for (const isl of this.all) {
+      isl.buildMeshes({ palette: isl.theme.rockPalette, J: isl.R < 30 ? 12 : 30, S: isl.R < 30 ? 56 : 120 });
+      const b = new Batcher();
+      isl.theme.populate?.call(isl.theme, isl, ctx, b);
+      b.build().forEach((m) => isl.group.add(m));
+      scene.add(isl.group);
+      physics.addSurface(isl);
+      // 岛屿四周漂浮的碎石
+      this.floatingDebris(isl);
+      yield 0.15 + (++k / this.all.length) * 0.5;
+    }
+
+    this.rail.build(scene, physics, this.interact);
+    this.puffs = new Puffs(80);
+    scene.add(this.puffs.mesh);
+    yield 0.75;
+
+    // 云：云海隆起、空中零散云、轨道下的托云、瀑布水雾
+    scatterClouds(this.clouds, this.islands.map((i) => ({ x: i.center.x, y: i.center.y, z: i.center.z, r: i.R * 1.4 })));
+    const fr = {};
+    for (let s = 0; s < this.rail.length; s += 55) {
+      this.rail.frameAt(s, fr);
+      if (this.all.some((i) => Math.hypot(i.center.x - fr.pos.x, i.center.z - fr.pos.z) < i.R + 20)) continue;
+      this.clouds.add(fr.pos.x, fr.pos.y - 5, fr.pos.z, 16 + Math.random() * 14, 0.85, 0.45);
+    }
+    for (const m of this.mists) this.clouds.add(m.p.x, m.p.y, m.p.z, m.s, 0.8, 0.6);
+    scene.add(this.clouds.build());
+
+    const avoid = this.all.map((i) => ({ x: i.center.x, y: i.center.y, z: i.center.z, r: i.R }));
+    distantIslets(scene, avoid, this.rail.samples);
+    this.castle = skyCastle(scene);
+    birdFlocks(scene, this.anim);
+    yield 0.9;
+
+    // 上升气流
+    for (const u of UPDRAFTS) {
+      const s = new Swarm({
+        count: 140, center: new THREE.Vector3(u.x, (u.y0 + u.y1) / 2, u.z), box: new THREE.Vector3(u.r * 2, u.y1 - u.y0, u.r * 2),
+        vel: new THREE.Vector3(0, 7, 0), size: 0.35, colorA: 0xffffff, colorB: 0xf3ead2, shape: 1, jitter: 0.6, swirl: 0.9, opacity: 0.8, seed: 77,
+      });
+      scene.add(s.points);
+      this.swarms.push(s);
+      this.updrafts.push(u);
+      // 气流底部和顶部的标记云
+      this.clouds.add(u.x, u.y1 - 4, u.z, 14, 0.5, 0.4);
+    }
+    this.lods = [];
+    scene.traverse((o) => { if (o.userData.lod) this.lods.push(o); });
+    yield 1;
+  }
+
+  makeCtx() {
+    const self = this;
+    this.mists = [];
+    return {
+      scene: this.scene,
+      anim: this.anim,
+      at(isl, x, z, ry = 0, dy = 0) {
+        const h = isl.localHeight(x, z) ?? 0;
+        return T(new THREE.Matrix4(), x, h + dy, z, 0, ry, 0);
+      },
+      collide(isl, x, z, r, h = 10) {
+        const y = (isl.localHeight(x, z) ?? 0) + isl.center.y;
+        self.physics.addCircle(x + isl.center.x, z + isl.center.z, r, y - 2, y + h);
+      },
+      box(isl, x, z, hx, hz, ang, h = 8) {
+        const y = (isl.localHeight(x, z) ?? 0) + isl.center.y;
+        self.physics.addBox(x + isl.center.x, z + isl.center.z, hx, hz, ang, y - 2, y + h);
+      },
+      // 从 (x,z) 沿 θ 方向向外延伸的木平台
+      platform(isl, x, z, th, len, wid) {
+        const top = (isl.localHeight(x, z) ?? 0) + 0.05 + isl.center.y;
+        const cx = x + Math.cos(th) * len / 2 + isl.center.x, cz = z + Math.sin(th) * len / 2 + isl.center.z;
+        self.physics.addSurface(new BoxSurface(cx, cz, top, len / 2 + 0.3, wid / 2, th, 0.6));
+      },
+      disc(isl, x, z, r, dy) {
+        const top = (isl.localHeight(x, z) ?? 0) + dy + isl.center.y;
+        self.physics.addSurface(new DiscSurface(x + isl.center.x, z + isl.center.z, r, top));
+      },
+      viewpoint(isl, x, z, tour, label) {
+        const pos = new THREE.Vector3(x, (isl.localHeight(x, z) ?? 0), z).add(isl.center);
+        self.viewpoints[tour] = pos;
+        self.interact.push({ pos, radius: 6, label: () => label, action: () => self.onViewpoint?.(tour), priority: 2 });
+        // 地面上的金色标记环
+        const ring = new THREE.Mesh(new THREE.TorusGeometry(1.3, 0.06, 6, 32), new THREE.MeshBasicMaterial({ color: P.gold }));
+        ring.rotation.x = Math.PI / 2; ring.position.copy(pos).y += 0.25;
+        self.scene.add(ring);
+        self.anim.push((dt, t) => { ring.scale.setScalar(1 + Math.sin(t * 2) * 0.08); });
+      },
+      glideDeck(isl, x, z, th) {
+        const pos = new THREE.Vector3(x, (isl.localHeight(x, z) ?? 0) + 1.2, z).add(isl.center);
+        self.glideDeckPos = pos;
+        self.interact.push({ pos, radius: 5, label: () => '按 <b>E</b> 乘风起跳（滑翔）', action: () => self.onGlideDeck?.(pos, th), priority: 2 });
+      },
+      mist(p, s) { self.mists.push({ p, s }); },
+      // 沿小径铺石板
+      stones(isl, b) {
+        const r = mulberry32(isl.cfg.seed + 5);
+        for (const p of isl.paths) {
+          for (let i = 0; i < p.pts.length; i++) {
+            if (r() < 0.25) continue;
+            const [x, z] = p.pts[i];
+            const ox = (r() - 0.5) * p.w * 0.9, oz = (r() - 0.5) * p.w * 0.9;
+            const h = isl.localHeight(x + ox, z + oz);
+            if (h === null) continue;
+            const s = 0.35 + r() * 0.3;
+            b.add('flat', GEO.cyl6, r() < 0.5 ? P.stone : 0xe1d6c0, T(new THREE.Matrix4(), x + ox, h + 0.03, z + oz, 0, r() * 3, 0, s * 1.4, 0.1, s));
+          }
+        }
+      },
+    };
+  }
+
+  floatingDebris(isl) {
+    const r = mulberry32(isl.cfg.seed + 33);
+    const n = isl.R < 30 ? 2 : 6;
+    const b = new Batcher();
+    for (let i = 0; i < n; i++) {
+      const a = r() * Math.PI * 2, d = isl.R * (1.1 + r() * 0.5);
+      const s = 1 + r() * isl.R * 0.05;
+      b.add('flat', GEO.ico, [P.rose, P.rockBlue, P.soil][i % 3], T(new THREE.Matrix4(), Math.cos(a) * d, -10 - r() * 40, Math.sin(a) * d, r() * 3, r() * 3, 0, s, s * 1.6, s));
+    }
+    const meshes = b.build();
+    const g = new THREE.Group();
+    meshes.forEach((m) => { m.castShadow = false; g.add(m); });
+    isl.group.add(g);
+    const ph = r() * 6;
+    this.anim.push((dt, t) => { g.position.y = Math.sin(t * 0.4 + ph) * 1.2; g.rotation.y = t * 0.01; });
+  }
+
+  /** 玩家当前所在区域 */
+  regionAt(p) {
+    let best = null, bd = 1e9;
+    for (const isl of this.all) {
+      const d = Math.hypot(p.x - isl.center.x, p.z - isl.center.z);
+      if (d < isl.R * 1.35 + 10 && Math.abs(p.y - isl.center.y) < 120 && d / isl.R < bd) { bd = d / isl.R; best = isl; }
+    }
+    return best;
+  }
+
+  update(dt, t, camera) {
+    for (const f of this.anim) f(dt, t);
+    this.clouds.update(dt, camera);
+    // 植被按距离显隐（远处草叶小于一个像素，没必要绘制）
+    for (const o of this.lods) o.visible = o.userData.lod.c.distanceTo(camera.position) < o.userData.lod.d;
+    this.puffs.update(dt);
+  }
+}

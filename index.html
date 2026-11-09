@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>风栖群岛 · Fengqi Isles</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <script type="importmap">
+    { "imports": { "three": "./lib/three.module.min.js" } }
+  </script>
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <div id="ui">
+    <div id="brand">
+      <div class="title">风栖群岛</div>
+      <div class="subtitle">FENGQI ISLES · 云上旅行 demo</div>
+      <ul id="keys">
+        <li><b>WASD</b> 移动　<b>Shift</b> 奔跑</li>
+        <li><b>空格</b> 跳跃（空中再按展开滑翔）</li>
+        <li><b>E</b> 交互 / 上车 / 下车</li>
+        <li><b>G</b> 滑翔 / 收起</li>
+        <li><b>V</b> 世界全景　<b>R</b> 返回最近车站</li>
+        <li><b>拖动</b> 环顾　<b>滚轮</b> 缩放　<b>H</b> 隐藏</li>
+      </ul>
+    </div>
+
+    <div id="region"><div class="name"></div><div class="sub"></div></div>
+
+    <div id="mapwrap">
+      <canvas id="minimap" width="230" height="190"></canvas>
+      <div class="maplabel">云轨环线 · 六站</div>
+    </div>
+
+    <div id="prompt"></div>
+    <div id="trainInfo"></div>
+    <div id="toast"></div>
+
+    <div id="letterbox">
+      <div class="bar top"></div><div class="bar bottom"></div>
+      <div id="caption"><div class="c-title"></div><div class="c-sub"></div></div>
+      <div class="skip">按 Esc 跳过</div>
+    </div>
+    <div id="fade"></div>
+
+    <div id="loading">
+      <div class="l-title">风栖群岛</div>
+      <div class="l-sub">正在把云朵一朵一朵铺开……</div>
+      <div class="l-bar"><i></i></div>
+    </div>
+    <div id="error"></div>
+  </div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
