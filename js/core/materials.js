@@ -24,12 +24,12 @@ export const G = {
 // 云轨“逐段升起”共享参数（由 Railway.update 每帧写入）
 export const RAIL = {
   uRailS: { value: 0 }, uRailL: { value: 1 }, uRailMode: { value: 1 }, uTail: { value: 50 },
-  uNear: { value: 55 }, uFar: { value: 190 }, uSt: { value: new Array(8).fill(-1e6) },
+  uNear: { value: 55 }, uFar: { value: 190 }, uSeg: { value: 6 }, uSt: { value: new Array(8).fill(-1e6) },
 };
 const RAIL_GLSL = /* glsl */ `
-uniform float uRailS, uRailL, uRailMode, uTail, uNear, uFar; uniform float uSt[8];
+uniform float uRailS, uRailL, uRailMode, uTail, uNear, uFar, uSeg; uniform float uSt[8];
 attribute float aS;
-varying float vGlow;
+varying float vGlow; varying float vRev;
 float railReveal(float s, float shift, out float glow){
   float L = uRailL;
   float ahead = mod(s - uRailS + L*4.0, L);
@@ -87,12 +87,12 @@ export function wc(o = {}) {
       .replace('#include <begin_vertex>', `#include <begin_vertex>
         ${rail ? `{
           float glow;
-          float segS = floor(aS / 6.0) * 6.0 + 3.0;   // 以 6 米为一段整体升起
+          float segS = floor(aS / uSeg) * uSeg + 0.5 * uSeg;   // 以一段（约 6 米）为单位整体升起
           float r = railReveal(segS, ${shift}, glow);
           float drop = (1.0 - r) * (1.0 - r) * 42.0;
           ${inst ? `transformed *= max(r, 0.0001); transformed.y -= drop;`
                  : `transformed = aC + (transformed - aC) * max(r, 0.0001) - vec3(0.0, drop, 0.0);`}
-          vGlow = glow;
+          vGlow = glow; vRev = r;
         }` : ''}
         ${sway > 0 ? `{
           vec4 wp0 = vec4(transformed, 1.0);
@@ -112,9 +112,10 @@ export function wc(o = {}) {
           #endif
           vWPos = (modelMatrix * wp).xyz; }`);
     sh.fragmentShader = sh.fragmentShader
+      .replace('#include <clipping_planes_fragment>', rail ? 'if (vRev < 0.04) discard;\n#include <clipping_planes_fragment>' : '#include <clipping_planes_fragment>')
       .replace('#include <common>', `#include <common>
         uniform float uTime; uniform vec3 uHazeColor; varying vec3 vWPos;
-        ${rail ? 'varying float vGlow;' : ''}
+        ${rail ? 'varying float vGlow; varying float vRev;' : ''}
         ${GLSL_NOISE}`)
       .replace('#include <fog_fragment>', `{
           vec3 col = gl_FragColor.rgb;

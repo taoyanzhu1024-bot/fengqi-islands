@@ -104,20 +104,30 @@ export class Railway {
     this.samples = frames.map((f) => f.pos.clone());
 
     // 沿曲线扫掠截面；每个顶点记录弧长 aS 与所在截面中心 aC（供“逐段升起”shader 使用）
-    const sweepGeo = (profile, closed = true) => {
+    const SEGF = 3;                       // 每段 3 个采样间隔
+    const segLen = ds * SEGF;
+    RAIL.uSeg.value = segLen;
+    this.segLen = segLen;
+    // 每段独立的扫掠网格（段与段之间不共享三角形 → 各段可单独升降，不会拉出连接面）
+    // 顶点 aS 记录所在段的中心弧长，aC 记录截面中心
+    const sweepGeo = (profile, closed = true, exact = false) => {
       const P2 = profile.length, pos = [], sArr = [], cArr = [], idx = [];
-      frames.forEach((f, i) => {
-        for (const [x, y] of profile) {
-          pos.push(f.pos.x + f.right.x * x + f.up.x * y, f.pos.y + f.right.y * x + f.up.y * y, f.pos.z + f.right.z * x + f.up.z * y);
-          sArr.push(i * ds); cArr.push(f.pos.x, f.pos.y, f.pos.z);
-        }
-      });
       const J = closed ? P2 : P2 - 1;
-      for (let i = 0; i < F; i++) {
-        const ni = (i + 1) % F;
-        for (let j = 0; j < J; j++) {
-          const a = i * P2 + j, b = i * P2 + ((j + 1) % P2), c = ni * P2 + j, d = ni * P2 + ((j + 1) % P2);
-          idx.push(a, c, b, b, c, d);
+      const nSeg = Math.ceil(F / SEGF);
+      for (let k = 0; k < nSeg; k++) {
+        const sMid = k * segLen + segLen * 0.5;
+        const base = pos.length / 3;
+        const i0 = k * SEGF, i1 = Math.min((k + 1) * SEGF, F);
+        for (let i = i0; i <= i1; i++) {
+          const f = frames[i % F];
+          for (const [x, y] of profile) {
+            pos.push(f.pos.x + f.right.x * x + f.up.x * y, f.pos.y + f.right.y * x + f.up.y * y, f.pos.z + f.right.z * x + f.up.z * y);
+            sArr.push(exact ? i * ds : sMid); cArr.push(f.pos.x, f.pos.y, f.pos.z);
+          }
+        }
+        for (let r = 0; r < i1 - i0; r++) for (let j = 0; j < J; j++) {
+          const a = base + r * P2 + j, b2 = base + r * P2 + ((j + 1) % P2), c = base + (r + 1) * P2 + j, d = base + (r + 1) * P2 + ((j + 1) % P2);
+          idx.push(a, c, b2, b2, c, d);
         }
       }
       const g = new THREE.BufferGeometry();
@@ -126,7 +136,6 @@ export class Railway {
       g.setAttribute('aC', new THREE.Float32BufferAttribute(cArr, 3));
       g.setIndex(idx);
       g.computeVertexNormals();
-      g.boundingSphere = null;
       return g;
     };
     // shift：越大越晚成形 → 先支架、再枕木、最后轨条
@@ -179,7 +188,7 @@ export class Railway {
     grp.add(sleepers, arcs, lanterns);
 
     // 风之光带：列车前方淡金/青绿色的能量轨迹（加色混合，仅云轨模式）
-    const ribbonGeo = sweepGeo([[-1.3, 0.35], [1.3, 0.35]], false);
+    const ribbonGeo = sweepGeo([[-1.3, 0.35], [1.3, 0.35]], false, true);
     const side = new Float32Array(ribbonGeo.attributes.position.count);
     for (let i = 0; i < side.length; i++) side[i] = i % 2;
     ribbonGeo.setAttribute('aSide', new THREE.BufferAttribute(side, 1));
@@ -237,7 +246,8 @@ export class Railway {
     if (this.mode === 'classic') return 1;
     const L = this.length, sm = (x) => Math.min(1, Math.max(0, x));
     const ss = (a, b, x) => { const t = sm((x - a) / (b - a)); return t * t * (3 - 2 * t); };
-    const seg = Math.floor(s / 6) * 6 + 3;
+    const sl = this.segLen;
+    const seg = Math.floor((((s % this.length) + this.length) % this.length) / sl) * sl + sl / 2;
     const ahead = (((seg - RAIL.uRailS.value) % L) + L * 4) % L, behind = L - ahead;
     let stn = 0;
     for (const st of this.stations) { const d = Math.abs((((seg - st.s) % L) + L * 1.5) % L - L * 0.5); stn = Math.max(stn, 1 - ss(120, 160, d)); }
