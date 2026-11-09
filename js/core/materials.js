@@ -25,7 +25,7 @@ export const G = {
 // 云轨“逐段升起”参数：每条线路一套（由 Railway.update 每帧写入）
 const makeRail = () => ({
   uRailS: { value: 0 }, uRailL: { value: 1 }, uRailMode: { value: 1 }, uTail: { value: 50 },
-  uNear: { value: 55 }, uFar: { value: 190 }, uSeg: { value: 6 }, uSt: { value: new Array(8).fill(-1e6) },
+  uNear: { value: 40 }, uFar: { value: 130 }, uSeg: { value: 6 }, uSt: { value: new Array(8).fill(-1e6) },
   uClosed: { value: 1 }, uDir: { value: 1 },
 });
 export const RAILS = { loop: makeRail(), branch: makeRail() };
@@ -42,13 +42,16 @@ float railReveal(float s, float shift, out float glow){
   float stn = 0.0;
   for (int i = 0; i < 8; i++) {
     float d = uClosed > 0.5 ? abs(mod(s - uSt[i] + L*1.5, L) - L*0.5) : abs(s - uSt[i]);
-    stn = max(stn, 1.0 - smoothstep(120.0, 160.0, d));
+    stn = max(stn, 1.0 - smoothstep(70.0, 100.0, d));
   }
   float form = 1.0 - smoothstep(uNear, uFar, ahead + shift);
-  float keep = 1.0 - smoothstep(uTail + 140.0, uTail + 260.0, behind);
+  float keep = 1.0 - smoothstep(uTail + 90.0, uTail + 170.0, behind);
   float r = clamp(max(max(form, keep), stn), 0.0, 1.0);
-  glow = (1.0 - smoothstep(uTail * 0.5, uTail + 200.0, behind)) * (1.0 - stn) * 0.45 * step(behind, 1e5);
-  glow += (1.0 - abs(r * 2.0 - 1.0)) * 0.9 * (1.0 - stn);
+  // 逐段错开：每一段按自己的节奏“跳”上来，像踏石一样一块块拼成轨道
+  float h = fract(floor(s / uSeg) * 0.618034);
+  r = clamp((r - 0.3 * h) / 0.7, 0.0, 1.0);
+  glow = (1.0 - smoothstep(uTail * 0.5, uTail + 120.0, behind)) * (1.0 - stn) * 0.45 * step(behind, 1e5);
+  glow += (1.0 - abs(r * 2.0 - 1.0)) * 1.5 * (1.0 - stn);
   if (uRailMode < 0.5) { r = 1.0; glow = 0.0; }
   return r;
 }`;
@@ -96,9 +99,11 @@ export function wc(o = {}) {
           float glow;
           float segS = floor(aS / uSeg) * uSeg + 0.5 * uSeg;   // 以一段（约 6 米）为单位整体升起
           float r = railReveal(segS, ${shift}, glow);
-          float drop = (1.0 - r) * (1.0 - r) * 42.0;
-          ${inst ? `transformed *= max(r, 0.0001); transformed.y -= drop;`
-                 : `transformed = aC + (transformed - aC) * max(r, 0.0001) - vec3(0.0, drop, 0.0);`}
+          // 从下方云海升起：先快后慢，接近到位时略微上冲再落稳
+          float drop = (1.0 - r) * (1.0 - r) * 30.0 - sin(r * 3.14159) * (1.0 - r) * 2.5;
+          float sc = r < 0.001 ? 0.0001 : mix(0.35, 1.0, r);
+          ${inst ? `transformed *= sc; transformed.y -= drop;`
+                 : `transformed = aC + (transformed - aC) * sc - vec3(0.0, drop, 0.0);`}
           vGlow = glow; vRev = r;
         }` : ''}
         ${sway > 0 ? `{
@@ -138,7 +143,9 @@ export function wc(o = {}) {
           // 受光面偏暖
           col *= mix(vec3(1.0), vec3(1.05,1.0,0.92), smoothstep(0.9, 1.5, lit));
           ${haze > 0 ? `col = mix(col, uHazeColor, ${haze.toFixed(3)});` : ''}
-          ${rail ? 'col += vec3(0.62, 0.46, 0.16) * vGlow;' : ''}
+          ${rail ? `col += mix(vec3(0.62, 0.46, 0.16), vec3(0.35, 0.75, 0.7), clamp(vGlow - 0.45, 0.0, 1.0)) * vGlow;
+          // 远处轨道融入雾气：细小的远景几何不会变成深色线条
+          col = mix(col, uHazeColor, smoothstep(220.0, 900.0, length(vWPos - cameraPosition)) * 0.75);` : ''}
           gl_FragColor.rgb = col;
         }
         #include <fog_fragment>`);

@@ -158,14 +158,15 @@ export class Railway {
     };
     // shift：越大越晚成形 → 先支架、再枕木、最后轨条
     const sweep = (profile, color, shift) => {
-      const m = new THREE.Mesh(sweepGeo(profile), wc({ color, flat: true, side: THREE.DoubleSide, grain: 0.6, rail: shift, railSet: this.name }));
+      // 不用 flatShading：远处细长三角形用屏幕导数求法线，在部分显卡上会得到 NaN（显示为黑线）
+      const m = new THREE.Mesh(sweepGeo(profile), wc({ color, side: THREE.DoubleSide, grain: 0.6, rail: shift, railSet: this.name }));
       m.castShadow = false; m.receiveShadow = true; m.frustumCulled = false;
       return m;
     };
     const rect = (x0, y0, x1, y1) => [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
     const grp = new THREE.Group(); grp.name = 'track';
-    grp.add(sweep(rect(-0.82, -0.16, -0.66, 0), P.gold, 30));
-    grp.add(sweep(rect(0.66, -0.16, 0.82, 0), P.gold, 30));
+    grp.add(sweep(rect(-0.82, -0.16, -0.66, 0), P.gold, 20));
+    grp.add(sweep(rect(0.66, -0.16, 0.82, 0), P.gold, 20));
     grp.add(sweep([[-0.5, -0.42], [0.5, -0.42], [0.32, -0.9], [-0.32, -0.9]], P.cream, 0));
     grp.add(sweep(rect(-0.12, -1.05, 0.12, -0.88), P.goldLight, 0));
 
@@ -188,7 +189,7 @@ export class Railway {
       return im;
     };
     const sleeperN = Math.floor(this.length / 1.6);
-    const sleepers = instanced(new THREE.BoxGeometry(2.3, 0.14, 0.34), wc({ color: 0xc9a27e, flat: true, rail: 15, inst: true, railSet: this.name }), sleeperN, 1.6,
+    const sleepers = instanced(new THREE.BoxGeometry(2.3, 0.14, 0.34), wc({ color: 0xc9a27e, rail: 10, inst: true, railSet: this.name }), sleeperN, 1.6,
       (f) => dummy.position.copy(f.pos).addScaledVector(f.up, -0.25));
     sleepers.receiveShadow = true;
     const arcN = Math.floor(this.length / 14);
@@ -196,13 +197,9 @@ export class Railway {
     arcGeo.rotateZ(Math.PI);
     const arcs = instanced(arcGeo, wc({ color: P.gold, grain: 0.4, rail: 0, inst: true, railSet: this.name }), arcN, 14,
       (f) => dummy.position.copy(f.pos).addScaledVector(f.up, -0.45));
-    const lanterns = new THREE.InstancedMesh(new THREE.OctahedronGeometry(0.28, 0), new THREE.MeshBasicMaterial({ color: P.glowWarm }), arcN);
-    for (let i = 0; i < arcN; i++) {
-      this.frameAt(i * 14, fr);
-      dummy.position.copy(fr.pos).addScaledVector(fr.up, -1.6);
-      dummy.updateMatrix();
-      lanterns.setMatrixAt(i, dummy.matrix);
-    }
+    // 风灯随轨道一起升起（不再沿整条线路常亮，避免远处出现一串点线）
+    const lanterns = instanced(new THREE.OctahedronGeometry(0.28, 0), wc({ color: 0x000000, emissive: P.glowWarm, grain: 0, rail: 5, inst: true, railSet: this.name }), arcN, 14,
+      (f) => dummy.position.copy(f.pos).addScaledVector(f.up, -1.6));
     grp.add(sleepers, arcs, lanterns);
 
     // 风之光带：列车前方淡金/青绿色的能量轨迹（加色混合，仅云轨模式）
@@ -249,12 +246,12 @@ export class Railway {
     if (this.mode === 'classic' || !moving) return;
     this._mistT = (this._mistT ?? 0) - dt;
     if (this._mistT <= 0 && puffs) {
-      this._mistT = 0.12;
-      const sAhead = U.uRailS.value + (U.uNear.value + Math.random() * 70) * U.uDir.value;
-      const near = (!this.closed && (sAhead < 0 || sAhead > this.length)) || this.stations.some((st) => Math.abs(((sAhead - st.s + this.length * 1.5) % this.length) - this.length * 0.5) < 160);
+      this._mistT = 0.07;
+      const sAhead = U.uRailS.value + (U.uNear.value * 0.6 + Math.random() * (U.uFar.value - U.uNear.value * 0.6)) * U.uDir.value;
+      const near = (!this.closed && (sAhead < 0 || sAhead > this.length)) || this.stations.some((st) => Math.abs(((sAhead - st.s + this.length * 1.5) % this.length) - this.length * 0.5) < 90);
       if (!near) {
         const f = this.frameAt(sAhead, this._mf || (this._mf = {}));
-        puffs.emit(f.pos.clone().addScaledVector(f.right, (Math.random() - 0.5) * 6).add(new THREE.Vector3(0, -6 - Math.random() * 6, 0)),
+        puffs.emit(f.pos.clone().addScaledVector(f.right, (Math.random() - 0.5) * 6).add(new THREE.Vector3(0, -3 - Math.random() * 8, 0)),
           new THREE.Vector3((Math.random() - 0.5) * 1.5, 4 + Math.random() * 3, (Math.random() - 0.5) * 1.5), 2.2, 2.6);
       }
     }
@@ -276,11 +273,12 @@ export class Railway {
     let stn = 0;
     for (const st of this.stations) {
       const d = this.closed ? Math.abs((((seg - st.s) % L) + L * 1.5) % L - L * 0.5) : Math.abs(seg - st.s);
-      stn = Math.max(stn, 1 - ss(120, 160, d));
+      stn = Math.max(stn, 1 - ss(70, 100, d));
     }
     const form = 1 - ss(U.uNear.value, U.uFar.value, ahead + shift);
-    const keep = 1 - ss(U.uTail.value + 140, U.uTail.value + 260, behind);
-    return Math.max(form, keep, stn);
+    const keep = 1 - ss(U.uTail.value + 90, U.uTail.value + 170, behind);
+    const h = (Math.floor(seg / sl) * 0.618034) % 1;
+    return sm((Math.max(form, keep, stn) - 0.3 * h) / 0.7);
   }
 
   setMode(m) { this.mode = m === 'classic' ? 'classic' : 'cloud'; localStorage.setItem('fengqi.railMode', this.mode); }

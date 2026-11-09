@@ -42,9 +42,15 @@ export class WatercolorPost {
           c = mix(c, blur, 0.35);
           // 深度描边（像钢笔淡彩的轮廓）
           float d0 = lin(uv);
-          float e = abs(d0 - lin(uv + vec2(px.x,0))) + abs(d0 - lin(uv - vec2(px.x,0)))
-                  + abs(d0 - lin(uv + vec2(0,px.y))) + abs(d0 - lin(uv - vec2(0,px.y)));
+          float n1 = lin(uv + vec2(px.x,0)), n2 = lin(uv - vec2(px.x,0)), n3 = lin(uv + vec2(0,px.y)), n4 = lin(uv - vec2(0,px.y));
+          float e = abs(d0 - n1) + abs(d0 - n2) + abs(d0 - n3) + abs(d0 - n4);
           float edge = smoothstep(0.03, 0.2, e / d0) * (1.0 - smoothstep(250.0, 1600.0, d0));
+          // 远处只有一两个像素宽的细物（两侧都更远，如远处的轨道、栏杆）不描边，避免变成深色粗线
+          float thin = max(step(d0 * 1.05, min(n1, n2)), step(d0 * 1.05, min(n3, n4)));
+          // 细物旁边的背景像素也不要被染深
+          float nearN = min(min(n1, n2), min(n3, n4));
+          float behind = step(nearN * 1.05, d0) * smoothstep(0.0, 1.0, (d0 - nearN) / max(nearN, 1.0));
+          edge *= 1.0 - max(thin, behind * 0.85) * smoothstep(120.0, 300.0, min(d0, nearN));
           // 颜料边缘沉积：色块交界处颜色更深
           float pool = clamp(length(c - blur) * 3.0, 0.0, 1.0);
           vec3 ink = c * vec3(0.52, 0.5, 0.62);
