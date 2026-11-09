@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { smoothstep } from '../../core/utils.js';
 import { PALETTE as P } from '../../config.js';
 import * as pr from '../props.js';
+import { DETAILS } from './details.js';
 import { grassField } from '../vegetation.js';
 import { Swarm } from '../particles.js';
 
@@ -54,6 +55,7 @@ export const snowTheme = {
       pr.crystal(b, ctx.at(isl, x, z, r() * 6, -0.3), s, r() < 0.5 ? P.ice : 0xd6d0f0);
       if (s > 1.2) ctx.collide(isl, x, z, s * 0.4, 4);
     }
+    DETAILS.snow(isl, ctx, b, this);
     ctx.stones(isl, b);
     ctx.scene.add(new Swarm({
       count: 500, center: isl.center.clone().add(new THREE.Vector3(0, 20, 0)), box: new THREE.Vector3(220, 60, 220),

@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { smoothstep } from '../../core/utils.js';
 import { PALETTE as P } from '../../config.js';
 import * as pr from '../props.js';
+import { DETAILS } from './details.js';
 import { grassField, flowerField } from '../vegetation.js';
 import { waterfall } from '../particles.js';
 
@@ -61,6 +62,7 @@ export const lighthouseTheme = {
       ctx.collide(isl, x, z, 0.5, 8);
       n++;
     }
+    DETAILS.lighthouse(isl, ctx, b, this, info);
     ctx.stones(isl, b);
     ctx.mist(waterfall(isl, 0.9, { width: 2.5, len: 120 }), 40);
     ctx.scene.add(grassField(isl, { count: 9000, base: 0x7f9d78, tip: 0xc5d29c, tip2: 0xe6e0b0, h: [0.4, 1.0] }));

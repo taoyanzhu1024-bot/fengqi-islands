@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { smoothstep } from '../../core/utils.js';
 import { PALETTE as P } from '../../config.js';
 import * as pr from '../props.js';
+import { DETAILS } from './details.js';
 import { grassField } from '../vegetation.js';
 import { waterfall } from '../particles.js';
 import { planAirDock, buildAirDock } from '../airship.js';
@@ -93,6 +94,7 @@ export const portTheme = {
       ctx.collide(isl, x, z, 0.5, 6);
       n++;
     }
+    DETAILS.port(isl, ctx, b, this);
     ctx.stones(isl, b);
     ctx.mist(waterfall(isl, 1.1, { width: 3, len: 100 }), 40);
     ctx.scene.add(grassField(isl, { count: 9000, base: 0x86a275, tip: 0xc0d093, h: [0.3, 0.7], mask: (x, z) => smoothstep(28, 36, Math.hypot(x - 5, z + 5)) }));

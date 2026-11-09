@@ -4,6 +4,7 @@ import { GEO, T } from '../../core/batcher.js';
 import { smoothstep } from '../../core/utils.js';
 import { PALETTE as P } from '../../config.js';
 import * as pr from '../props.js';
+import { DETAILS } from './details.js';
 import { grassField, flowerField } from '../vegetation.js';
 import { waterfall, Swarm } from '../particles.js';
 
@@ -114,6 +115,7 @@ export const mainTheme = {
     ctx.mist(waterfall(isl, Math.atan2(70, -60), { width: 3.5, len: 95 }), 40);
     ctx.mist(waterfall(isl, 2.75, { width: 2.2, len: 70 }), 26);
 
+    DETAILS.main(isl, ctx, b, this);
     ctx.scene.add(grassField(isl, { count: 26000, base: 0x7a9670, tip: 0xb9cd8e, tip2: 0xd9d59c, h: [0.35, 0.85] }));
     ctx.scene.add(flowerField(isl, { count: 1400, colors: [P.cream, P.coralSoft, P.butter, P.lavender, 0xffffff] }));
   },

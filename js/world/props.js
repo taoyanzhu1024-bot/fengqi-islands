@@ -356,3 +356,253 @@ export function airship(o = {}) {
   b.build().forEach((m) => g.add(m));
   return g;
 }
+
+// ============================================================
+// V2 岛屿细节道具（全部程序化建模）
+// ============================================================
+
+/** 石井：石砌井圈 + 木架 + 小屋顶 + 辘轳与水桶 */
+export function well(b, base, o = {}) {
+  b.add('flat', GEO.cyl12, P.stone, T(base, 0, 0.45, 0, 0, 0, 0, 1.1, 0.9, 1.1));
+  for (let i = 0; i < 12; i++) { const a = (i / 12) * Math.PI * 2; b.add('flat', GEO.box, i % 2 ? P.stoneDark : 0xc9bda8, T(base, Math.cos(a) * 1.08, 0.3 + (i % 3) * 0.2, Math.sin(a) * 1.08, 0, -a, 0, 0.08, 0.16, 0.5)); }
+  b.add('solid', GEO.cyl12, P.water, T(base, 0, 0.86, 0, 0, 0, 0, 0.88, 0.04, 0.88));
+  b.add('flat', GEO.torus, P.stoneDark, T(base, 0, 0.92, 0, Math.PI / 2, 0, 0, 1.1, 1.1, 2.4));
+  for (const sx of [-1, 1]) b.add('solid', GEO.box, P.woodDark, T(base, sx * 1.0, 1.5, 0, 0, 0, 0, 0.13, 2.1, 0.13));
+  b.add('solid', GEO.cyl8, P.wood, T(base, 0, 1.95, 0, 0, 0, Math.PI / 2, 0.08, 2.0, 0.08));
+  b.add('solid', GEO.cyl6, P.woodDark, T(base, 0, 1.55, 0, 0, 0, 0, 0.012, 0.8, 0.012));
+  b.add('solid', GEO.taper8, P.wood, T(base, 0, 1.05, 0, Math.PI, 0, 0, 0.18, 0.28, 0.18));
+  b.add('solid', GEO.prism, o.roof ?? P.coral, T(base, 0, 2.55, 0, 0, Math.PI / 2, 0, 0.95, 0.6, 1.6));
+  b.add('solid', GEO.box, P.woodDark, T(base, 0, 2.55, 0, 0, 0, 0, 2.3, 0.08, 0.1));
+}
+
+/** 木花箱：一排小花 */
+export function planter(b, base, len = 2, colors = [P.coral, P.butter, P.pink, 0xffffff], seed = 1) {
+  const r = mulberry32(seed);
+  b.add('solid', GEO.box, P.wood, T(base, 0, 0.22, 0, 0, 0, 0, len, 0.44, 0.6));
+  b.add('solid', GEO.box, P.woodDark, T(base, 0, 0.45, 0, 0, 0, 0, len + 0.06, 0.05, 0.66));
+  b.add('flat', GEO.box, P.soil, T(base, 0, 0.44, 0, 0, 0, 0, len - 0.1, 0.03, 0.5));
+  for (let x = -len / 2 + 0.18; x < len / 2 - 0.1; x += 0.22) {
+    const h = 0.18 + r() * 0.2;
+    b.add('solid', GEO.cyl6, P.sageDark, T(base, x, 0.45 + h / 2, (r() - 0.5) * 0.3, 0, 0, 0, 0.015, h, 0.015));
+    b.add('sway', GEO.sphereLo, colors[Math.floor(r() * colors.length)], T(base, x, 0.47 + h, (r() - 0.5) * 0.3, 0, 0, 0, 0.09 + r() * 0.04));
+  }
+  for (let i = 0; i < 4; i++) b.add('sway', blob(i), P.sage, T(base, -len / 2 + 0.3 + i * (len - 0.6) / 3, 0.52, 0.2, 0, i, 0, 0.18, 0.12, 0.18));
+}
+
+/** 晾衣绳：两根立柱 + 下垂的绳子 + 随风摆动的衣物 */
+export function laundry(b, base, len = 5, colors = [P.cream, P.coralSoft, 0x94adc6, P.butter, 0xffffff]) {
+  for (const z of [-len / 2, len / 2]) b.add('solid', GEO.box, P.woodDark, T(base, 0, 1.1, z, 0, 0, 0, 0.1, 2.2, 0.1));
+  const sag = (u) => 2.05 - Math.sin(u * Math.PI) * 0.3;
+  for (let i = 0; i < 8; i++) {
+    const u0 = i / 8, u1 = (i + 1) / 8;
+    b.segment('solid', P.cream, base, [0, sag(u0), -len / 2 + len * u0], [0, sag(u1), -len / 2 + len * u1], 0.012, GEO.cyl6);
+  }
+  for (let i = 0; i < 5; i++) {
+    const u = 0.14 + i * 0.18, w = 0.5 + (i % 2) * 0.25, h = 0.55 + ((i * 7) % 3) * 0.15;
+    b.add('swaySoft', GEO.box, colors[i % colors.length], T(base, 0, sag(u) - h / 2 - 0.02, -len / 2 + len * u, 0, 0, 0, 0.03, h, w));
+    b.add('solid', GEO.box, P.woodLight ?? P.wood, T(base, 0, sag(u) + 0.02, -len / 2 + len * u, 0, 0, 0, 0.05, 0.08, 0.04));
+  }
+}
+
+/** 木推车：车斗 + 两个辐条轮 + 车把；load='hay' | 'flowers' | 'crates' */
+export function cart(b, base, load = 'hay', seed = 2) {
+  const r = mulberry32(seed);
+  b.add('solid', GEO.box, P.wood, T(base, 0, 0.8, 0, 0, 0, 0, 1.4, 0.12, 2.2));
+  for (const sx of [-1, 1]) b.add('solid', GEO.box, P.woodDark, T(base, sx * 0.68, 1.05, 0, 0, 0, 0, 0.06, 0.4, 2.2));
+  for (const sz of [-1, 1]) b.add('solid', GEO.box, P.woodDark, T(base, 0, 1.05, sz * 1.08, 0, 0, 0, 1.4, 0.4, 0.06));
+  for (const sx of [-1, 1]) {
+    b.add('solid', GEO.cyl16, P.woodDark, T(base, sx * 0.82, 0.5, 0.25, 0, 0, Math.PI / 2, 0.5, 0.08, 0.5));
+    b.add('solid', GEO.torus, P.gold, T(base, sx * 0.86, 0.5, 0.25, 0, Math.PI / 2, 0, 0.42, 0.42, 1.2));
+    for (let k = 0; k < 4; k++) b.add('solid', GEO.box, P.wood, T(base, sx * 0.84, 0.5, 0.25, (k / 4) * Math.PI, 0, 0, 0.04, 0.85, 0.05));
+    b.segment('solid', P.woodDark, base, [sx * 0.45, 0.85, -1.1], [sx * 0.35, 0.95, -2.3], 0.05, GEO.cyl6);
+  }
+  b.add('solid', GEO.box, P.woodDark, T(base, 0, 0.42, -0.9, 0, 0, 0, 0.1, 0.8, 0.1));
+  if (load === 'hay') for (let i = 0; i < 5; i++) b.add('flat', blob(i + 20, 1, 0.25), vary(P.butter, r, 0.1), T(base, (r() - 0.5) * 0.7, 1.15 + r() * 0.2, (r() - 0.5) * 1.6, 0, r() * 3, 0, 0.55, 0.35, 0.6));
+  else if (load === 'flowers') for (let i = 0; i < 26; i++) b.add('sway', GEO.sphereLo, [P.pink, P.coralSoft, P.butter, 0xffffff, P.lavender][i % 5], T(base, (r() - 0.5) * 1.2, 1.05 + r() * 0.35, (r() - 0.5) * 2.0, 0, 0, 0, 0.13 + r() * 0.06));
+  else for (let i = 0; i < 3; i++) crate(b, T(base, (i - 1) * 0.42, 0.86, (i % 2) * 0.5 - 0.3, 0, i * 0.3, 0), 0.4);
+}
+
+/** 草编蜂箱 */
+export function skep(b, base) {
+  b.add('solid', GEO.box, P.woodDark, T(base, 0, 0.35, 0, 0, 0, 0, 0.9, 0.08, 0.9));
+  for (const x of [-0.35, 0.35]) for (const z of [-0.35, 0.35]) b.add('solid', GEO.box, P.woodDark, T(base, x, 0.17, z, 0, 0, 0, 0.07, 0.34, 0.07));
+  b.add('solid', GEO.dome, 0xdcb563, T(base, 0, 0.39, 0, 0, 0, 0, 0.42, 0.75, 0.42));
+  for (let i = 0; i < 4; i++) { const y = 0.47 + i * 0.15, s = 0.42 * Math.sqrt(1 - Math.pow((y - 0.39) / 0.75, 2)); b.add('solid', GEO.torus, 0xc69a48, T(base, 0, y, 0, Math.PI / 2, 0, 0, s, s, 1.2)); }
+  b.add('solid', GEO.box, 0x4a3a30, T(base, 0, 0.45, 0.4, 0, 0, 0, 0.16, 0.08, 0.04));
+}
+
+/** 野餐：格子布 + 篮子 + 杯子 */
+export function picnic(b, base) {
+  const chk = new THREE.Color(), a = new THREE.Color(P.coral), w = new THREE.Color(0xfff6ea);
+  b.add('flat', GEO.box, (x, y, z) => chk.copy((Math.floor(x * 3 + 50) + Math.floor(z * 3 + 50)) % 2 ? a : w), T(base, 0, 0.02, 0, 0, 0, 0, 2.0, 0.02, 1.6));
+  b.add('solid', GEO.box, P.wood, T(base, 0.5, 0.2, 0.2, 0, 0.3, 0, 0.55, 0.36, 0.38));
+  b.add('solid', GEO.torus, P.woodDark, T(base, 0.5, 0.42, 0.2, 0, 0.3, 0, 0.22, 0.22, 1.5));
+  for (const [x, z] of [[-0.4, -0.3], [-0.1, 0.4]]) b.add('solid', GEO.cyl8, 0xffffff, T(base, x, 0.08, z, 0, 0, 0, 0.07, 0.13, 0.07));
+  b.add('solid', GEO.sphereLo, 0xd9534f, T(base, -0.6, 0.08, 0.3, 0, 0, 0, 0.08));
+}
+
+/** 拱形小木桥（局部 +Z 为桥的走向） */
+export function footbridge(b, base, len = 6, w = 1.6, rise = 0.6) {
+  const y = (z) => rise * Math.cos((z / len) * Math.PI);
+  for (let z = -len / 2; z <= len / 2 + 0.01; z += 0.32) b.add('solid', GEO.box, P.wood, T(base, 0, y(z), z, -Math.sin((z / len) * Math.PI) * rise * Math.PI / len, 0, 0, w, 0.08, 0.26));
+  for (const sx of [-1, 1]) {
+    for (let k = 0; k <= 4; k++) { const z = -len / 2 + (k / 4) * len; b.add('solid', GEO.box, P.woodDark, T(base, sx * w / 2, y(z) + 0.4, z, 0, 0, 0, 0.08, 0.8, 0.08)); }
+    for (let k = 0; k < 8; k++) { const z0 = -len / 2 + (k / 8) * len, z1 = z0 + len / 8; b.segment('solid', P.woodDark, base, [sx * w / 2, y(z0) + 0.78, z0], [sx * w / 2, y(z1) + 0.78, z1], 0.04, GEO.cyl6); }
+  }
+}
+
+/** 柴堆 */
+export function logPile(b, base, n = 6) {
+  let k = 0;
+  for (let row = 0; row < 3 && k < n; row++) for (let i = 0; i < 3 - row && k < n; i++, k++)
+    b.add('solid', GEO.cyl8, k % 2 ? P.wood : 0xb58a64, T(base, (i - (2 - row) / 2) * 0.42, 0.2 + row * 0.36, 0, Math.PI / 2, 0, 0, 0.2, 1.6, 0.2));
+  for (const z of [-0.81, 0.81]) for (let i = 0; i < 3; i++) b.add('solid', GEO.cyl8, P.goldLight, T(base, (i - 1) * 0.42, 0.2, z, Math.PI / 2, 0, 0, 0.16, 0.02, 0.16));
+}
+
+/** 树桩（带年轮） */
+export function stump(b, base, s = 1) {
+  b.add('solid', GEO.taper8, P.wood, T(base, 0, 0.25 * s, 0, 0, 0, 0, 0.45 * s, 0.5 * s, 0.45 * s));
+  b.add('solid', GEO.cyl8, P.goldLight, T(base, 0, 0.5 * s, 0, 0, 0, 0, 0.32 * s, 0.02, 0.32 * s));
+  b.add('solid', GEO.torus, P.wood, T(base, 0, 0.51 * s, 0, Math.PI / 2, 0, 0, 0.18 * s, 0.18 * s, 0.5));
+}
+
+/** 稻草人 */
+export function scarecrow(b, base) {
+  b.add('solid', GEO.box, P.woodDark, T(base, 0, 1.0, 0, 0, 0, 0, 0.1, 2.0, 0.1));
+  b.add('solid', GEO.box, P.woodDark, T(base, 0, 1.55, 0, 0, 0, 0, 1.5, 0.08, 0.08));
+  b.add('swaySoft', GEO.box, 0x94adc6, T(base, 0, 1.35, 0, 0, 0, 0, 0.8, 0.7, 0.3));
+  b.add('solid', GEO.sphereLo, P.butter, T(base, 0, 2.05, 0, 0, 0, 0, 0.26));
+  b.add('solid', GEO.cyl16, 0xd9b45a, T(base, 0, 2.28, 0, 0, 0, 0, 0.42, 0.03, 0.42));
+  b.add('solid', GEO.cone12, 0xd9b45a, T(base, 0, 2.42, 0, 0, 0, 0, 0.22, 0.28, 0.22));
+  for (const sx of [-1, 1]) b.add('flat', blob(sx + 3, 0, 0.3), P.butter, T(base, sx * 0.8, 1.52, 0, 0, 0, 0, 0.14, 0.18, 0.12));
+}
+
+/** 邮筒 */
+export function mailbox(b, base, color = P.coral) {
+  b.add('solid', GEO.box, P.woodDark, T(base, 0, 0.55, 0, 0, 0, 0, 0.1, 1.1, 0.1));
+  b.add('solid', GEO.box, color, T(base, 0, 1.2, 0.05, 0, 0, 0, 0.36, 0.3, 0.55));
+  b.add('solid', GEO.cyl12, color, T(base, 0, 1.35, 0.05, Math.PI / 2, 0, 0, 0.18, 0.55, 0.18));
+  b.add('solid', GEO.box, P.gold, T(base, 0.2, 1.35, -0.1, 0, 0, 0, 0.03, 0.3, 0.06));
+  b.add('solid', GEO.box, P.gold, T(base, 0.2, 1.5, -0.02, 0, 0, 0, 0.03, 0.06, 0.18));
+}
+
+/** 雪人 */
+export function snowman(b, base, s = 1, scarf = P.coral) {
+  b.add('solid', GEO.sphere, P.snow, T(base, 0, 0.55 * s, 0, 0, 0, 0, 0.62 * s));
+  b.add('solid', GEO.sphere, P.snow, T(base, 0, 1.35 * s, 0, 0, 0, 0, 0.45 * s));
+  b.add('solid', GEO.sphere, P.snow, T(base, 0, 1.98 * s, 0, 0, 0, 0, 0.32 * s));
+  b.add('solid', GEO.cone8, 0xe8894f, T(base, 0, 1.98 * s, 0.38 * s, Math.PI / 2, 0, 0, 0.06 * s, 0.3 * s, 0.06 * s));
+  for (const sx of [-1, 1]) b.add('solid', GEO.sphereLo, 0x3b3440, T(base, sx * 0.11 * s, 2.07 * s, 0.27 * s, 0, 0, 0, 0.04 * s));
+  for (const y of [1.2, 1.42]) b.add('solid', GEO.sphereLo, 0x3b3440, T(base, 0, y * s, 0.44 * s, 0, 0, 0, 0.045 * s));
+  b.add('solid', GEO.torus, scarf, T(base, 0, 1.7 * s, 0, Math.PI / 2, 0, 0, 0.32 * s, 0.32 * s, 2.4 * s));
+  b.add('swaySoft', GEO.box, scarf, T(base, 0.18 * s, 1.5 * s, 0.25 * s, 0.2, 0, 0.1, 0.12 * s, 0.4 * s, 0.04 * s));
+  b.add('solid', GEO.cyl12, 0x55617a, T(base, 0, 2.3 * s, 0, 0.1, 0, 0, 0.26 * s, 0.32 * s, 0.26 * s));
+  b.add('solid', GEO.cyl12, 0x55617a, T(base, 0, 2.15 * s, 0, 0.1, 0, 0, 0.38 * s, 0.03, 0.38 * s));
+  for (const sx of [-1, 1]) b.segment('solid', P.woodDark, base, [sx * 0.4 * s, 1.4 * s, 0], [sx * 0.95 * s, 1.75 * s, 0.1], 0.03, GEO.cyl6);
+}
+
+/** 雪橇 */
+export function sled(b, base) {
+  for (const sx of [-1, 1]) {
+    b.add('solid', GEO.box, P.coral, T(base, sx * 0.35, 0.06, 0, 0, 0, 0, 0.06, 0.06, 1.5));
+    b.add('solid', GEO.torus, P.coral, T(base, sx * 0.35, 0.22, 0.75, 0, Math.PI / 2, 0, 0.18, 0.18, 1.4));
+    for (const z of [-0.5, 0.4]) b.add('solid', GEO.box, P.woodDark, T(base, sx * 0.35, 0.18, z, 0, 0, 0, 0.05, 0.24, 0.05));
+  }
+  for (let z = -0.6; z <= 0.55; z += 0.22) b.add('solid', GEO.box, P.wood, T(base, 0, 0.32, z, 0, 0, 0, 0.85, 0.05, 0.16));
+}
+
+/** 原木小屋（带烟囱）；返回烟囱顶部的局部坐标 */
+export function cabin(b, base, o = {}) {
+  const w = o.w ?? 5, d = o.d ?? 4, h = o.h ?? 2.6;
+  for (let y = 0.15; y < h; y += 0.3) {
+    for (const sz of [-1, 1]) b.add('solid', GEO.cyl6, (y * 10) % 2 < 1 ? P.wood : 0x9b7254, T(base, 0, y, sz * d / 2, 0, 0, Math.PI / 2, 0.16, w + 0.4, 0.16));
+    for (const sx of [-1, 1]) b.add('solid', GEO.cyl6, (y * 10) % 2 < 1 ? 0x9b7254 : P.wood, T(base, sx * w / 2, y + 0.15, 0, Math.PI / 2, 0, 0, 0.16, d + 0.4, 0.16));
+  }
+  b.add('solid', GEO.box, P.woodDark, T(base, 0, h / 2, 0, 0, 0, 0, w - 0.2, h, d - 0.2));
+  b.add('flat', GEO.prism, o.roof ?? P.sageDark, T(base, 0, h + 0.5, 0, 0, Math.PI / 2, 0, (d + 1.2) / 1.732, 1.3, w + 0.8));
+  if (o.snow) b.add('flat', GEO.prism, P.snow, T(base, 0, h + 0.62, 0, 0, Math.PI / 2, 0, (d + 1.3) / 1.732, 1.25, w + 0.85));
+  b.add('solid', GEO.box, P.woodDark, T(base, 0, 0.95, d / 2 + 0.02, 0, 0, 0, 0.9, 1.9, 0.06));
+  b.add('glow', GEO.box, P.glowWarm, T(base, w * 0.28, 1.4, d / 2 + 0.03, 0, 0, 0, 0.7, 0.6, 0.04));
+  b.add('solid', GEO.box, P.woodDark, T(base, w * 0.28, 1.4, d / 2 + 0.05, 0, 0, 0, 0.08, 0.66, 0.04));
+  const cx = -w * 0.3;
+  b.add('flat', GEO.box, P.stone, T(base, cx, h + 1.2, -d * 0.15, 0, 0, 0, 0.6, 2.0, 0.6));
+  b.add('flat', GEO.box, P.stoneDark, T(base, cx, h + 2.25, -d * 0.15, 0, 0, 0, 0.72, 0.12, 0.72));
+  return new THREE.Vector3(cx, h + 2.4, -d * 0.15).applyMatrix4(base);
+}
+
+/** 彩旗串：在两点之间下垂（a、c 为同一局部空间中的点） */
+export function bunting(b, base, a, c, n = 12, colors = [P.coral, P.butter, P.sage, 0x94adc6, P.pink]) {
+  const sag = Math.hypot(c[0] - a[0], c[2] - a[2]) * 0.06;
+  const P3 = (u) => [a[0] + (c[0] - a[0]) * u, a[1] + (c[1] - a[1]) * u - Math.sin(u * Math.PI) * sag, a[2] + (c[2] - a[2]) * u];
+  for (let i = 0; i < 10; i++) b.segment('solid', P.cream, base, P3(i / 10), P3((i + 1) / 10), 0.015, GEO.cyl6);
+  const ang = Math.atan2(c[0] - a[0], c[2] - a[2]);
+  for (let i = 1; i < n; i++) { const p = P3(i / n); b.add('swaySoft', GEO.prism, colors[i % colors.length], T(base, p[0], p[1] - 0.22, p[2], Math.PI, ang + Math.PI / 2, Math.PI / 2, 0.16, 0.03, 0.26)); }
+}
+
+/** 集市小摊：桌台 + 条纹遮阳篷 + 货物 */
+export function stall(b, base, color = P.coral, goods = 'fruit', seed = 3) {
+  const r = mulberry32(seed);
+  b.add('solid', GEO.box, P.wood, T(base, 0, 0.85, 0, 0, 0, 0, 2.2, 0.1, 1.0));
+  b.add('solid', GEO.box, P.woodDark, T(base, 0, 0.42, 0.45, 0, 0, 0, 2.2, 0.8, 0.06));
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) b.add('solid', GEO.box, P.woodDark, T(base, sx * 1.05, 1.15, sz * 0.48, 0, 0, 0, 0.08, 2.3, 0.08));
+  for (let i = 0; i < 6; i++) b.add('solid', GEO.box, i % 2 ? color : 0xfff6ea, T(base, -1.1 + 0.183 + i * 0.367, 2.32, 0.15, 0.3, 0, 0, 0.367, 0.05, 1.5));
+  for (let i = 0; i < 6; i++) b.add('swaySoft', GEO.prism, i % 2 ? color : 0xfff6ea, T(base, -1.1 + 0.183 + i * 0.367, 2.05, 0.85, Math.PI, 0, 0, 0.1, 0.18, 0.03));
+  const cols = goods === 'fruit' ? [0xe36a5a, 0xf2b84a, 0x9cc46a, 0xe89a50] : goods === 'flowers' ? [P.pink, P.lavender, P.butter, 0xffffff] : [0xd2a052, 0x94adc6, P.coralSoft, P.cream];
+  for (let i = 0; i < 4; i++) {
+    b.add('solid', GEO.box, P.woodLight ?? 0xc49a72, T(base, -0.75 + i * 0.5, 0.97, -0.1, 0, 0, 0, 0.42, 0.14, 0.5));
+    for (let k = 0; k < 5; k++) b.add(goods === 'flowers' ? 'sway' : 'solid', GEO.sphereLo, cols[i], T(base, -0.75 + i * 0.5 + (r() - 0.5) * 0.25, 1.1 + r() * 0.06, -0.1 + (r() - 0.5) * 0.3, 0, 0, 0, 0.08 + r() * 0.03));
+  }
+}
+
+/** 小划艇（放在支架上） */
+export function rowboat(b, base, color = 0x94adc6) {
+  const hull = new THREE.SphereGeometry(1, 16, 8, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2);
+  b.add('solid', hull, color, T(base, 0, 0.75, 0, 0, 0, 0, 0.75, 0.45, 1.9));
+  b.add('solid', GEO.torus, P.cream, T(base, 0, 0.75, 0, Math.PI / 2, 0, 0, 0.75, 1.9, 1.2));
+  for (const z of [-0.6, 0.5]) b.add('solid', GEO.box, P.wood, T(base, 0, 0.62, z, 0, 0, 0, 1.3, 0.06, 0.28));
+  for (const z of [-1.0, 1.0]) for (const sx of [-1, 1]) b.add('solid', GEO.box, P.woodDark, T(base, sx * 0.4, 0.2, z, 0, 0, sx * 0.3, 0.08, 0.5, 0.08));
+  for (const sx of [-1, 1]) b.segment('solid', P.wood, base, [sx * 0.2, 0.72, -0.8], [sx * 0.95, 0.4, 1.2], 0.035, GEO.cyl6);
+}
+
+/** 花拱门 */
+export function trellis(b, base, w = 2.6, h = 2.8, colors = [P.pink, 0xffffff, P.coralSoft], seed = 4) {
+  const r = mulberry32(seed);
+  for (const sx of [-1, 1]) b.add('solid', GEO.box, P.cream, T(base, sx * w / 2, h / 2, 0, 0, 0, 0, 0.1, h, 0.1));
+  b.add('solid', new THREE.TorusGeometry(w / 2, 0.05, 6, 16, Math.PI), P.cream, T(base, 0, h, 0));
+  for (let i = 0; i < 26; i++) {
+    const t = r(), a = t * Math.PI, onArc = i % 3;
+    const x = onArc ? Math.cos(a) * w / 2 : (i % 2 ? 1 : -1) * w / 2, y = onArc ? h + Math.sin(a) * w / 2 : t * h;
+    b.add('sway', blob(i % 4), P.sage, T(base, x, y, (r() - 0.5) * 0.2, 0, i, 0, 0.22, 0.18, 0.22));
+    if (i % 2) b.add('sway', GEO.sphereLo, colors[i % colors.length], T(base, x + (r() - 0.5) * 0.2, y + 0.1, 0.12, 0, 0, 0, 0.1));
+  }
+}
+
+/** 树屋：围绕树干的圆形平台 + 栏杆 + 小屋 + 绳梯（局部原点在树根） */
+export function treehouse(b, base, trunkR, H, o = {}) {
+  const R2 = trunkR + 3;
+  b.add('solid', GEO.cyl16, P.wood, T(base, 0, H, 0, 0, 0, 0, R2, 0.3, R2));
+  for (let i = 0; i < 16; i++) { const a = (i / 16) * Math.PI * 2; b.add('solid', GEO.box, P.woodDark, T(base, Math.cos(a) * (R2 - 0.1), H + 0.55, Math.sin(a) * (R2 - 0.1), 0, -a, 0, 0.08, 0.9, 0.08)); }
+  b.add('solid', GEO.torus, P.woodDark, T(base, 0, H + 1.0, 0, Math.PI / 2, 0, 0, R2 - 0.1, R2 - 0.1, 0.6));
+  for (let i = 0; i < 4; i++) { const a = (i / 4) * Math.PI * 2 + 0.4; b.segment('solid', P.woodDark, base, [Math.cos(a) * (R2 - 0.4), H - 0.1, Math.sin(a) * (R2 - 0.4)], [Math.cos(a) * trunkR * 0.8, H - 3.2, Math.sin(a) * trunkR * 0.8], 0.12, GEO.cyl6); }
+  const hx = trunkR + 1.6;
+  b.add('solid', GEO.box, o.wall ?? P.cream, T(base, hx, H + 1.25, 0, 0, 0, 0, 2.4, 2.2, 2.6));
+  b.add('solid', GEO.prism, o.roof ?? P.coral, T(base, hx, H + 2.6, 0, 0, 0, 0, 1.75, 0.9, 3.0));
+  b.add('glow', GEO.box, P.glowWarm, T(base, hx + 1.21, H + 1.4, 0.4, 0, 0, 0, 0.04, 0.6, 0.6));
+  b.add('solid', GEO.box, P.woodDark, T(base, hx + 1.21, H + 1.0, -0.6, 0, 0, 0, 0.04, 1.4, 0.7));
+  // 绳梯（从平台边缘垂到地面）
+  const lz = R2 - 0.2;
+  for (const sx of [-0.3, 0.3]) b.segment('solid', P.creamDark, base, [sx, H, lz], [sx, 0, lz + 0.4], 0.03, GEO.cyl6);
+  for (let y = 0.4; y < H; y += 0.45) b.add('solid', GEO.box, P.wood, T(base, 0, y, lz + 0.4 * (1 - y / H), 0, 0, 0, 0.7, 0.05, 0.08));
+  // 挂灯串
+  for (let i = 0; i < 8; i++) { const a = (i / 8) * Math.PI * 2; b.add('glow', GEO.sphereLo, i % 2 ? P.glowWarm : P.glowMint, T(base, Math.cos(a) * (R2 - 0.1), H + 1.05, Math.sin(a) * (R2 - 0.1), 0, 0, 0, 0.1)); }
+}
+
+/** 石灯笼 */
+export function stoneLantern(b, base) {
+  b.add('flat', GEO.cyl6, P.stoneDark, T(base, 0, 0.12, 0, 0, 0, 0, 0.38, 0.24, 0.38));
+  b.add('flat', GEO.cyl6, P.stone, T(base, 0, 0.6, 0, 0, 0, 0, 0.12, 0.8, 0.12));
+  b.add('flat', GEO.box, P.stone, T(base, 0, 1.05, 0, 0, 0, 0, 0.5, 0.1, 0.5));
+  b.add('glow', GEO.box, 0xffe2a8, T(base, 0, 1.28, 0, 0, Math.PI / 4, 0, 0.3, 0.32, 0.3));
+  b.add('flat', GEO.cone6, P.stoneDark, T(base, 0, 1.6, 0, 0, 0, 0, 0.5, 0.35, 0.5));
+  b.add('flat', GEO.sphereLo, P.stone, T(base, 0, 1.82, 0, 0, 0, 0, 0.08));
+}

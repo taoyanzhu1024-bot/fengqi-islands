@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { smoothstep } from '../../core/utils.js';
 import { PALETTE as P } from '../../config.js';
 import * as pr from '../props.js';
+import { DETAILS } from './details.js';
 import { grassField } from '../vegetation.js';
 import { waterfall, Swarm } from '../particles.js';
 
@@ -23,8 +24,10 @@ export const forestTheme = {
   },
   populate(isl, ctx, b) {
     const r = isl.rand;
+    this.giantInfo = [];
     this.giants.forEach(([x, z], i) => {
       const H = 34 + r() * 14, R = 2.6 + r() * 1.2;
+      this.giantInfo.push({ H, R });
       pr.giantTree(b, ctx.at(isl, x, z, r() * 6, -0.5), { h: H, r: R, seed: i + 10 });
       ctx.collide(isl, x, z, R * 1.2, H);
       isl.addShade(x, z, H * 0.8, R * 5, 0.6);
@@ -52,6 +55,7 @@ export const forestTheme = {
       if (!isl.isFree(x, z, 1, 2)) continue;
       pr.rock(b, ctx.at(isl, x, z, r() * 6, -0.3), 0.8 + r() * 1.8, 0x9fae98, i);
     }
+    DETAILS.forest(isl, ctx, b, this);
     ctx.stones(isl, b);
     ctx.scene.add(new Swarm({
       count: 260, center: isl.center.clone().add(new THREE.Vector3(0, 5, 0)), box: new THREE.Vector3(180, 12, 180),
