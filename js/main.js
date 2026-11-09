@@ -203,7 +203,7 @@ async function boot() {
     if (rig.mode === 'cinematic') {
       if (input.take('Escape') || input.take('Enter')) rig.skip();
     } else {
-      if (input.was('KeyH')) hud.toggleKeys();
+      if (input.was('KeyH')) { hud.toggleKeys(); audio.sfx('ui'); }
       if (input.was('KeyV') && player.state !== 'locked') startTour('world');
       if (input.was('KeyR') && !ride.onTrain && player.state !== 'locked') {
         const st = world.nearestStation(player.pos);
@@ -218,8 +218,8 @@ async function boot() {
     let promptHtml = ride.update(dt, input) ?? '';
     const train = ride.train, stations = train.rail.stations;
     if (ride.onTrain && rig.mode === 'train') {
-      if (input.take('KeyT')) { rig.nextTrainView(); hud.toast(rig.trainViewName(), 1.6); }
-      if (input.take('KeyC')) rig.nextSeat();
+      if (input.take('KeyT')) { rig.nextTrainView(); hud.toast(rig.trainViewName(), 1.6); audio.sfx('ui'); }
+      if (input.take('KeyC')) { rig.nextSeat(); audio.sfx('ui'); }
       if (input.take('Escape') && rig.trainViewId !== 'window') { rig.setTrainView(0); hud.toast(rig.trainViewName(), 1.6); }
       for (let i = 0; i < stations.length; i++) if (input.take('Digit' + (i + 1))) train.setDestination(i);
     }
@@ -314,7 +314,8 @@ async function boot() {
       trainNear: ride.onTrain ? 1 : Math.max(0, 1 - nearestTrain().focusPos.distanceTo(camera.position) / 160),
       propeller: world.airship ? Math.max(ride.onTrain && train.isAirship ? 1 : 0, 1 - world.airship.focusPos.distanceTo(camera.position) / 160) * (0.4 + world.airship.throttle) : 0,
       propRate: world.airship?.throttle ?? 0,
-      glide: player.state === 'glide' ? 1 : 0, waterfall: wf, altitude: player.pos.y, night: world.sky?.night ?? 0,
+      glide: player.state === 'glide' ? 1 : 0, waterfall: wf, altitude: player.pos.y, night: world.sky?.night ?? dn.night,
+      hour: dn.hours, onAirship: ride.onTrain && !!train.isAirship,
     });
 
     // 阴影相机跟随焦点（按纹素对齐）

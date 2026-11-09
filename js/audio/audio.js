@@ -16,6 +16,16 @@ const SCALES = {
   sky: [60, 62, 65, 67, 70], city: [64, 66, 68, 71, 73], night: [57, 60, 62, 65, 67],
 };
 const midi = (m) => 440 * Math.pow(2, (m - 69) / 12);
+// 各岛背景音乐的主奏音色：p 发音概率、oct 移调、bell 用钟琴音色、arp 偶尔加快速琶音
+const INST = {
+  default: { type: 'triangle', a: 0.004, d: 1.6, p: 0.62, oct: 0 },
+  snow: { bell: true, p: 0.5, oct: 12 },
+  night: { bell: true, p: 0.4, oct: 12 },
+  forest: { type: 'sine', a: 0.06, d: 1.3, p: 0.55, oct: 0 },
+  city: { type: 'triangle', a: 0.004, d: 1.2, p: 0.7, oct: 0, arp: true },
+  flower: { type: 'triangle', a: 0.004, d: 1.0, p: 0.7, oct: 12 },
+  lighthouse: { type: 'sine', a: 0.05, d: 2.0, p: 0.45, oct: 0 },
+};
 
 export class AudioManager {
   constructor() {
@@ -26,6 +36,9 @@ export class AudioManager {
     this.loops = {};
     this.env = { region: 'main', speed: 0, onTrain: false, interior: 0.6, trainSpeed: 0, night: 0, waterfall: 0, glide: 0, wind: 0 };
     this.nextBird = 2; this.nextChime = 4; this.nextNote = 0; this.beat = 0; this.clackAcc = 0;
+    // 各类随机环境点缀的计时器（秒）
+    this.timers = { gull: 3, forest: 5, frog: 4, pigeon: 4, foghorn: 12, creak: 3, rigging: 6 };
+    this.lastHour = null; this.root = 48;
     this.errors = [];
     this._unlock = () => this.unlock();
     for (const ev of ['pointerdown', 'keydown', 'touchstart']) addEventListener(ev, this._unlock, { passive: true });
@@ -79,6 +92,12 @@ export class AudioManager {
     this.loops.rail = this.noiseLoop('bandpass', 2400, 4, this.trainFilter);
     this.loops.glide = this.noiseLoop('bandpass', 650, 0.9, this.bus.sfx);
     this.loops.prop = this.oscLoop('sawtooth', 48, 260, this.bus.sfx);
+    // 城中人声：带通噪声 + 快速移动的共振峰，听起来像远处模糊的交谈
+    this.loops.crowd = this.noiseLoop('bandpass', 520, 1.4, this.bus.ambient);
+    // 崖边云浪：低通噪声随慢速“潮汐”起伏
+    this.loops.surf = this.noiseLoop('lowpass', 500, 0.4, this.bus.ambient);
+    // 花海蜂鸣：锯齿波 + 颤音
+    this.loops.bees = this.beeLoop(this.bus.ambient);
     // 夜间虫鸣：高频正弦 + 调幅
     this.loops.insects = this.insectLoop(this.bus.ambient);
     // 背景铺底和弦
@@ -118,6 +137,15 @@ export class AudioManager {
     o.connect(v).connect(g).connect(dest); o.start(); am.start();
     return { g };
   }
+  beeLoop(dest) {
+    const c = this.ctx, o = c.createOscillator(); o.type = 'sawtooth'; o.frequency.value = 215;
+    const lfo = c.createOscillator(); lfo.frequency.value = 7; const lg = c.createGain(); lg.gain.value = 9;
+    lfo.connect(lg).connect(o.frequency);
+    const f = c.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 650; f.Q.value = 1.5;
+    const g = c.createGain(); g.gain.value = 0;
+    o.connect(f).connect(g).connect(dest); o.start(); lfo.start();
+    return { g, o };
+  }
   padLoop(dest) {
     const c = this.ctx, g = c.createGain(); g.gain.value = 0.0;
     const f = c.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 900;
@@ -156,10 +184,15 @@ export class AudioManager {
     src.connect(f).connect(g).connect(dest ?? this.bus.sfx);
     src.start(t, Math.random() * 2); src.stop(t + a + d + 0.05);
   }
-  bell(freq, vol = 0.12, dest) {
+  bell(freq, vol = 0.12, dest, when = 0, len = 1) {
     // 钟/风铃：非谐波泛音
     for (const [m, v, d] of [[1, 1, 2.2], [2.76, 0.4, 1.4], [5.4, 0.2, 0.8], [8.9, 0.08, 0.5]])
-      this.tone(freq * m, { vol: vol * v, d, a: 0.003, dest });
+      this.tone(freq * m, { vol: vol * v, d: d * len, a: 0.003, dest, when });
+  }
+  /** 一次性滤波器（声音结束后随源节点一起被回收） */
+  filt(type, freq, q = 1, dest) {
+    const f = this.ctx.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = q;
+    f.connect(dest ?? this.bus.sfx); return f;
   }
 
   sfx(name, opt = {}) {
@@ -168,11 +201,12 @@ export class AudioManager {
     const T = this.trainFilter;
     switch (name) {
       case 'step': {
-        const s = opt.surface;
-        if (s === 'stone') this.burst(2600, { q: 2, d: 0.05, vol: 0.18 });
-        else if (s === 'wood') { this.burst(900, { q: 3, d: 0.06, vol: 0.2 }); this.tone(180, { d: 0.05, vol: 0.05 }); }
-        else if (s === 'snow') this.burst(1400, { type: 'lowpass', d: 0.12, vol: 0.16, sweep: 0.5 });
-        else this.burst(1800, { type: 'highpass', q: 0.5, d: 0.07, vol: 0.09 });
+        // 每一步音高与音量略有随机，避免机械重复
+        const s = opt.surface, j = 0.88 + Math.random() * 0.24, k = 0.85 + Math.random() * 0.3;
+        if (s === 'stone') { this.burst(2600 * j, { q: 2, d: 0.05, vol: 0.18 * k }); this.burst(700 * j, { q: 1, d: 0.04, vol: 0.06 * k }); }
+        else if (s === 'wood') { this.burst(900 * j, { q: 3, d: 0.06, vol: 0.2 * k }); this.tone(170 * j, { d: 0.06, vol: 0.05 * k }); }
+        else if (s === 'snow') { this.burst(1400 * j, { type: 'lowpass', d: 0.14, vol: 0.16 * k, sweep: 0.5 }); this.burst(3500 * j, { q: 3, d: 0.05, vol: 0.04 * k, when: 0.03 }); }
+        else { this.burst(1800 * j, { type: 'highpass', q: 0.5, d: 0.07, vol: 0.09 * k }); this.burst(400 * j, { type: 'lowpass', d: 0.05, vol: 0.05 * k }); }
         break;
       }
       case 'jump': this.burst(700, { d: 0.18, vol: 0.12, sweep: 2.2 }); break;
@@ -218,6 +252,44 @@ export class AudioManager {
         break;
       }
       case 'splash': this.burst(500, { type: 'lowpass', a: 0.4, d: 2.5, vol: 0.25 * (opt.vol ?? 1), sweep: 0.4 }); break;
+
+      // —— 各岛的生灵（环境通道） ——
+      case 'gull': { // 海鸥：两三声下滑的“啾哟”
+        const A = this.bus.ambient, n = 2 + Math.floor(Math.random() * 2), f0 = 1250 + Math.random() * 300;
+        for (let i = 0; i < n; i++) { this.tone(f0, { type: 'triangle', a: 0.02, d: 0.24, vol: 0.03, when: i * 0.32, glide: 0.62, dest: A }); this.tone(f0 * 2, { a: 0.02, d: 0.18, vol: 0.008, when: i * 0.32, glide: 0.6, dest: A }); }
+        break;
+      }
+      case 'owl': { const A = this.bus.ambient; this.tone(392, { a: 0.06, d: 0.32, vol: 0.05, glide: 0.92, dest: A }); this.tone(370, { a: 0.08, d: 0.7, vol: 0.05, when: 0.55, glide: 0.9, dest: A }); break; }
+      case 'cuckoo': { const A = this.bus.ambient; this.tone(740, { a: 0.02, d: 0.3, vol: 0.035, dest: A }); this.tone(587, { a: 0.02, d: 0.42, vol: 0.035, when: 0.34, dest: A }); break; }
+      case 'woodpecker': { const n = 7 + Math.floor(Math.random() * 5); for (let i = 0; i < n; i++) this.burst(1700, { q: 4, d: 0.02, vol: 0.08 * (1 - i / n * 0.5), when: i * 0.055, dest: this.bus.ambient }); break; }
+      case 'frog': { const F = this.filt('lowpass', 700, 2, this.bus.ambient); for (let i = 0; i < 2; i++) this.tone(150 + Math.random() * 30, { type: 'square', a: 0.01, d: 0.07, vol: 0.03, when: i * 0.13, glide: 1.4, dest: F }); break; }
+      case 'pigeon': { const A = this.bus.ambient; for (let i = 0; i < 2; i++) this.tone(430, { a: 0.08, d: 0.3, vol: 0.03, when: i * 0.45, glide: 0.82, dest: A }); break; }
+      case 'rooster': {
+        const F = this.filt('lowpass', 1800, 1, this.bus.ambient);
+        this.tone(560, { type: 'sawtooth', a: 0.02, d: 0.16, vol: 0.025, glide: 1.4, dest: F });
+        this.tone(800, { type: 'sawtooth', a: 0.02, d: 0.16, vol: 0.025, when: 0.2, dest: F });
+        this.tone(880, { type: 'sawtooth', a: 0.03, d: 0.7, vol: 0.025, when: 0.4, glide: 0.65, dest: F });
+        break;
+      }
+      case 'foghorn': { // 灯塔雾笛：低沉的五度长鸣
+        const F = this.filt('lowpass', 420, 1, this.bus.ambient), v = opt.vol ?? 1;
+        for (const [f, k] of [[98, 1], [147, 0.6]]) this.tone(f, { type: 'sawtooth', a: 0.5, d: 2.6, vol: 0.05 * k * v, dest: F });
+        break;
+      }
+      case 'clockBell': { // 钟楼报时：城中先奏四音前奏，再按钟点敲钟
+        const n = opt.n ?? 1, v = opt.vol ?? 1;
+        let w = 0;
+        if (opt.prelude) { for (const m of [76, 72, 74, 67]) { this.bell(midi(m), 0.035 * v, this.bus.ambient, w, 0.8); w += 0.75; } w += 0.6; }
+        for (let i = 0; i < n; i++) this.bell(midi(55), 0.06 * v, this.bus.ambient, w + i * 1.5, 1.4);
+        break;
+      }
+      // —— 飞艇 ——
+      case 'creak': { const F = this.filt('bandpass', 700 + Math.random() * 500, 6, this.bus.sfx); this.tone(60 + Math.random() * 30, { type: 'sawtooth', a: 0.12, d: 0.45, vol: 0.06 * (opt.vol ?? 1), glide: 1.5, dest: F }); break; }
+      case 'rigging': this.burst(900, { q: 0.8, a: 0.05, d: 0.35, vol: 0.05 * (opt.vol ?? 1), sweep: 1.6 }); this.burst(1300, { q: 0.8, a: 0.03, d: 0.25, vol: 0.04 * (opt.vol ?? 1), when: 0.2, sweep: 0.7 }); break;
+      // —— 界面 ——
+      case 'ui': this.tone(1760, { d: 0.05, vol: 0.03 }); this.burst(4200, { type: 'highpass', d: 0.015, vol: 0.03 }); break;
+      case 'uiOpen': this.tone(880, { d: 0.12, vol: 0.03 }); this.tone(1319, { d: 0.18, vol: 0.025, when: 0.06 }); break;
+      case 'uiClose': this.tone(1319, { d: 0.1, vol: 0.025 }); this.tone(880, { d: 0.16, vol: 0.025, when: 0.06 }); break;
     }
   }
 
@@ -251,11 +323,45 @@ export class AudioManager {
       this.clackAcc += v.trainSpeed * dt;
       if (this.clackAcc > 13) { this.clackAcc = 0; this.sfx('clack', { vol: near * (0.5 + sp * 0.5) }); setTimeout(() => this.ready && this.sfx('clack', { vol: near * 0.6 }), 110); }
     }
+    // 城中人声、崖边云浪、花海蜂鸣
+    const day = 1 - (v.night ?? 0);
+    const crowd = v.region === 'city' ? 0.035 * (0.3 + 0.7 * day) : v.region === 'port' ? 0.012 * day : 0;
+    set(L.crowd.g, crowd * (0.7 + 0.3 * Math.sin(t * 0.9) * Math.sin(t * 0.37)), 0.3);
+    L.crowd.f.frequency.setTargetAtTime(470 + Math.sin(t * 1.7) * 120 + Math.sin(t * 2.9) * 70, t, 0.12);
+    const swell = 0.5 + 0.5 * Math.sin(t * 0.5);
+    const surf = v.region === 'lighthouse' ? 0.09 : v.region === 'port' || v.region === 'islet' ? 0.035 : 0;
+    set(L.surf.g, surf * (0.25 + 0.75 * swell * swell), 0.5);
+    L.surf.f.frequency.setTargetAtTime(280 + swell * 520, t, 0.5);
+    set(L.bees.g, v.region === 'flower' ? 0.007 * day : 0, 0.6);
+    L.bees.o.frequency.setTargetAtTime(205 + Math.sin(t * 0.8) * 25, t, 0.3);
+    this.critters(dt, v, day);
+    // 钟楼报时：在城中 / 云港 / 主岛，每到整点
+    if (v.hour != null) {
+      const h = Math.floor(v.hour);
+      if (this.lastHour != null && h === (this.lastHour + 1) % 24) {   // 只在时间自然走到整点时报时（切换时间预设不响）
+        if (v.region === 'city' || v.region === 'port' || v.region === 'main') this.sfx('clockBell', { n: ((h + 11) % 12) + 1, prelude: v.region === 'city', vol: v.region === 'main' ? 0.5 : 1 });
+        if (h === 6 && (v.region === 'main' || v.region === 'flower')) this.sfx('rooster');
+      }
+      this.lastHour = h;
+    }
     // 鸟鸣、风铃（白天、在岛上）
     this.nextBird -= dt; this.nextChime -= dt;
     if (this.nextBird <= 0) { this.nextBird = 3 + Math.random() * 7; if (v.night < 0.5 && v.region !== 'sky' && v.region !== 'snow') this.sfx('bird'); }
     if (this.nextChime <= 0) { this.nextChime = 6 + Math.random() * 10; if (v.region === 'snow' || v.region === 'main' || v.region === 'islet') this.sfx('chime'); }
     this.music(dt);
+  }
+
+  /** 各岛的随机生灵与点缀声 */
+  critters(dt, v, day) {
+    const T = this.timers, r = v.region, rnd = (a, b) => a + Math.random() * (b - a);
+    for (const k in T) T[k] -= dt;
+    if (T.gull <= 0) { T.gull = rnd(5, 12); if (day > 0.5 && (r === 'port' || r === 'lighthouse')) this.sfx('gull'); }
+    if (T.forest <= 0) { T.forest = rnd(7, 15); if (r === 'forest') this.sfx(day < 0.5 ? 'owl' : Math.random() < 0.5 ? 'cuckoo' : 'woodpecker'); else if (r === 'main' && day < 0.5 && Math.random() < 0.4) this.sfx('owl'); }
+    if (T.frog <= 0) { T.frog = rnd(3, 8); if (day < 0.5 && (r === 'main' || r === 'flower')) this.sfx('frog'); }
+    if (T.pigeon <= 0) { T.pigeon = rnd(6, 13); if (day > 0.5 && r === 'city') this.sfx('pigeon'); }
+    if (T.foghorn <= 0) { T.foghorn = rnd(25, 40); if (r === 'lighthouse') this.sfx('foghorn', { vol: 0.5 + (1 - day) * 0.5 }); }
+    if (T.creak <= 0) { T.creak = rnd(3, 8); if (v.onAirship) this.sfx('creak'); }
+    if (T.rigging <= 0) { T.rigging = rnd(5, 11); if (v.onAirship) this.sfx('rigging'); }
   }
 
   // 生成式背景音乐：柔和的拨弦琶音 + 铺底和弦（占位配乐，后续可替换为正式录音）
@@ -269,14 +375,25 @@ export class AudioManager {
     this.beat++;
     if (this.beat % 8 === 1) {
       const root = scale[Math.floor(Math.random() * 3)] - 12;
+      this.root = root;
       [0, 7, 16].forEach((s, i) => this.pad.oscs[i].frequency.setTargetAtTime(midi(root + s), t, 1.5));
       this.pad.g.gain.setTargetAtTime(0.035, t, 2);
     }
-    if (Math.random() < 0.62) {
-      const n = scale[Math.floor(Math.random() * scale.length)] + (Math.random() < 0.3 ? 12 : 0);
-      const dest = c.createGain(); dest.gain.value = 1; dest.connect(this.bus.music); dest.connect(this.delay);
-      this.tone(midi(n), { type: 'triangle', a: 0.004, d: 1.6, vol: 0.05, dest });
-      this.tone(midi(n) * 2, { type: 'sine', a: 0.004, d: 0.6, vol: 0.015, dest });
+    const dest = c.createGain(); dest.gain.value = 1; dest.connect(this.bus.music); dest.connect(this.delay);
+    // 低音：每四拍一个柔和的根音/五度
+    if (this.beat % 4 === 1) this.tone(midi(this.root - 12 + (this.beat % 8 === 5 ? 7 : 0)), { type: 'sine', a: 0.03, d: 2.2, vol: 0.04, dest: this.bus.music });
+    // 各岛音色：雪鸣岛偏钟琴、森林偏长笛般的正弦、天空之城偏竖琴（偶尔快速琶音）
+    const inst = INST[v.night > 0.6 ? 'night' : v.region] ?? INST.default;
+    if (Math.random() < inst.p) {
+      const n = scale[Math.floor(Math.random() * scale.length)] + (Math.random() < 0.3 ? 12 : 0) + inst.oct;
+      if (inst.bell) this.bell(midi(n), 0.018, dest, 0, 0.7);
+      else {
+        this.tone(midi(n), { type: inst.type, a: inst.a, d: inst.d, vol: 0.05, dest });
+        this.tone(midi(n) * 2, { type: 'sine', a: 0.004, d: 0.6, vol: 0.015, dest });
+      }
+      if (inst.arp && Math.random() < 0.25) [2, 4].forEach((k, i) => { const m = scale[(scale.indexOf(n - inst.oct) + k) % scale.length] ?? n; this.tone(midi(m + inst.oct), { type: 'triangle', d: 0.9, vol: 0.03, when: (i + 1) * tempo / 3, dest }); });
     }
+    // 乘车时：轻柔的沙锤节拍（跟着音乐速度）
+    if (v.onTrain && v.trainSpeed > 3) { this.burst(6500, { type: 'highpass', d: 0.04, vol: 0.012, dest: this.bus.music }); this.burst(6500, { type: 'highpass', d: 0.03, vol: 0.007, when: tempo / 2, dest: this.bus.music }); }
   }
 }

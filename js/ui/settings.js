@@ -4,7 +4,7 @@ export class SettingsPanel {
     this.audio = audio;
     const root = document.getElementById('settings');
     const btn = document.getElementById('settingsBtn');
-    btn.addEventListener('click', (e) => { e.stopPropagation(); root.classList.toggle('open'); this.refresh(); });
+    btn.addEventListener('click', (e) => { e.stopPropagation(); root.classList.toggle('open'); audio.sfx(root.classList.contains('open') ? 'uiOpen' : 'uiClose'); this.refresh(); });
     root.addEventListener('pointerdown', (e) => e.stopPropagation());
     this.root = root;
     this.getState = getState;
@@ -26,7 +26,7 @@ export class SettingsPanel {
     root.querySelector('input[data-k=enabled]').addEventListener('change', (e) => { audio.unlock(); audio.set('enabled', e.target.checked); this.refresh(); });
     root.querySelector('select[data-q]').addEventListener('change', (e) => onQuality(e.target.value));
     root.querySelector('select[data-rail]').addEventListener('change', (e) => onRailMode(e.target.value));
-    root.querySelectorAll('button[data-t]').forEach((b) => b.addEventListener('click', () => onTime(b.dataset.t)));
+    root.querySelectorAll('button[data-t]').forEach((b) => b.addEventListener('click', () => { onTime(b.dataset.t); audio.sfx('ui'); }));
     this.icon = btn;
     this.refresh();
   }
