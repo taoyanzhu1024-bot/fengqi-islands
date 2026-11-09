@@ -75,7 +75,8 @@ export class HUD {
     const g = c.getContext('2d');
     // 轨道
     for (const rl of this.world.rails) {
-      g.strokeStyle = rl.closed ? 'rgba(205,165,80,0.95)' : 'rgba(150,170,200,0.95)'; g.lineWidth = 2; g.setLineDash([5, 3]);
+      g.strokeStyle = rl.isAir ? 'rgba(227,154,134,0.8)' : rl.closed ? 'rgba(205,165,80,0.95)' : 'rgba(150,170,200,0.95)';
+      g.lineWidth = rl.isAir ? 1.4 : 2; g.setLineDash(rl.isAir ? [2, 4] : [5, 3]);
       g.beginPath();
       rl.samples.forEach((p, i) => { const [x, y] = this.toMap(p.x, p.z); i ? g.lineTo(x, y) : g.moveTo(x, y); });
       if (rl.closed) g.closePath();

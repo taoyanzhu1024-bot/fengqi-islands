@@ -14,13 +14,14 @@ import { grassField, flowerField } from '../vegetation.js';
 import { Swarm, waterfall, waterfallMat } from '../particles.js';
 import { townhouse, arcade, spire, CC, ARCH } from '../city/buildings.js';
 import { Residents } from '../city/residents.js';
+import { planAirDock, buildAirDock } from '../airship.js';
 
 const _c = new THREE.Color();
 export const CITY = {
   plaza: [0, 20], plazaR: 34,
   court: [0, -150], courtR: 58, courtH: 16,
   garden: [-150, 10],
-  portTh: 0.05,
+  portTh: -0.5,          // 东北岸飞艇港（面向云港岛方向）
 };
 
 const courtH = (x, z) => {
@@ -57,9 +58,12 @@ export const cityTheme = {
     isl.keep.push({ x: px, z: pz, r: CITY.plazaR + 2 }, { x: CITY.court[0], z: CITY.court[1], r: CITY.courtR + 38 },
       { x: CITY.garden[0], z: CITY.garden[1], r: 78 });
     // 飞艇港
-    this.dock = isl.rimPoint(CITY.portTh, 3);
-    isl.flats.push({ x: this.dock[0] - 8, z: this.dock[1], r: 14, blend: 8, h: 0.6 });
-    isl.keep.push({ x: this.dock[0] - 6, z: this.dock[1], r: 14 });
+    this.airPlan = planAirDock(isl, CITY.portTh);
+    const ar = this.airPlan.rootR - 1, po = [Math.cos(CITY.portTh), Math.sin(CITY.portTh)];
+    this.dock = [po[0] * ar, po[1] * ar];
+    // 候船厅位置预留（见 buildPort）
+    const hr = this.airPlan.rootR - 17;
+    isl.keep.push({ x: po[0] * hr - po[1] * 9, z: po[1] * hr + po[0] * 9, r: 6 }, { x: po[0] * (ar - 2), z: po[1] * (ar - 2), r: 7 });
     // 远眺台（花园西缘）
     this.viewTh = Math.PI + 0.12;
     this.view = isl.rimPoint(this.viewTh, 4);
@@ -69,7 +73,7 @@ export const cityTheme = {
     // 道路
     this.roads = {
       market: [[s.x, s.z], [s.x * 0.72 + 4, s.z * 0.72], [s.x * 0.42 + 4, s.z * 0.42 + 8], [px + 5, pz + CITY.plazaR - 2]],
-      east: [[px + CITY.plazaR - 2, pz - 2], [90, 14], [170, 8], [this.dock[0] - 16, this.dock[1]]],
+      east: [[px + CITY.plazaR - 2, pz - 2], [90, 4], [150, -45], [this.dock[0], this.dock[1]]],
       west: [[px - CITY.plazaR + 2, pz], [-70, 20], [-105, 18]],
       north: [[px, pz - CITY.plazaR + 2], [0, -40], [0, -70], [0, -96]],
     };
@@ -431,26 +435,17 @@ export const cityTheme = {
   },
 
   buildPort(isl, ctx, b, at, r) {
-    const [dx, dz] = this.dock;
-    const th = CITY.portTh;
-    const ang = Math.atan2(Math.cos(th), Math.sin(th));
-    pr.deck(b, at(dx, dz, ang, 0.05), 20, 6);
-    ctx.platform(isl, dx, dz, th, 20, 6);
-    // 系泊塔
-    const mx = dx + Math.cos(th) * 22 - Math.sin(th) * 6, mz = dz + Math.sin(th) * 22 + Math.cos(th) * 6;
-    const my = isl.localHeight(dx - 2, dz) ?? 0;
-    for (let k = 0; k < 4; k++) {
-      const a = (k / 4) * Math.PI * 2 + 0.4;
-      b.segment('solid', CC.copper, new THREE.Matrix4(), [mx + Math.cos(a) * 2.2, my - 14, mz + Math.sin(a) * 2.2], [mx + Math.cos(a) * 0.8, my + 18, mz + Math.sin(a) * 0.8], 0.16, GEO.cyl6);
-    }
-    for (let y = -10; y < 18; y += 4) b.add('solid', GEO.torus, CC.gold, T(new THREE.Matrix4(), mx, my + y, mz, Math.PI / 2, 0, 0, 2.2 - (y + 14) / 32 * 1.4, 2.2 - (y + 14) / 32 * 1.4, 2));
-    b.add('solid', GEO.cyl12, CC.gold, T(new THREE.Matrix4(), mx, my + 18.5, mz, 0, 0, 0, 1.4, 0.8, 1.4));
-    b.add('glow', GEO.sphereLo, 0xffdca0, T(new THREE.Matrix4(), mx, my + 19.4, mz, 0, 0, 0, 0.5));
-    for (let k = 0; k < 5; k++) pr.crate(b, at(dx - 6 + (k % 3) * 1.1, dz - 4 + Math.floor(k / 3) * 1.1, r()), 0.9);
-    pr.barrel(b, at(dx - 7, dz + 4)); pr.barrel(b, at(dx - 6, dz + 4.8));
-    townhouse(b, null, at(dx - 14, dz - 9, Math.PI / 2 + ang - Math.PI / 2), { w: 6, d: 5, floors: 1, seed: 77, roof: 'hip', roofColor: 0x94adc6 });
-    ctx.box(isl, dx - 14, dz - 9, 3.4, 3, 0, 8);
-    pr.signpost(b, at(dx - 9, dz + 3));
-    this.dockWorld = { pos: isl.center.clone().add(new THREE.Vector3(dx, my, dz)), th, mast: isl.center.clone().add(new THREE.Vector3(mx, my + 18, mz)) };
+    const info = buildAirDock(isl, ctx, b, this.airPlan, { name: '艾瑟兰空港', roof: 0x94adc6 });
+    const { out, tan, rootL } = info;
+    const p = (a, c) => [rootL.x + out.x * a + tan.x * c, rootL.z + out.z * a + tan.z * c];
+    // 候船厅（一层城市小楼）+ 路牌 + 花箱
+    const [hx, hz] = p(-17, 9);
+    townhouse(b, null, at(hx, hz, Math.atan2(out.x, out.z)), { w: 6, d: 5, floors: 1, seed: 77, roof: 'hip', roofColor: 0x94adc6 });
+    ctx.box(isl, hx, hz, 3.4, 3, -Math.atan2(out.x, out.z), 8);
+    isl.keep.push({ x: hx, z: hz, r: 4 });
+    const [sx, sz] = p(-3, -3.2);
+    pr.signpost(b, at(sx, sz, r()));
+    for (const c of [-5, 5]) { const [fx, fz] = p(-1, c); pr.barrel(b, at(fx, fz)); }
+    this.dockWorld = { pos: info.shipPos, th: CITY.portTh, mast: info.mastTop };
   },
 };

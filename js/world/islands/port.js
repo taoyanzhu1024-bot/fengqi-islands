@@ -5,6 +5,7 @@ import { PALETTE as P } from '../../config.js';
 import * as pr from '../props.js';
 import { grassField } from '../vegetation.js';
 import { waterfall } from '../particles.js';
+import { planAirDock, buildAirDock } from '../airship.js';
 
 const _c = new THREE.Color();
 
@@ -34,6 +35,10 @@ export const portTheme = {
     this.piers.forEach(({ p }) => isl.keep.push({ x: p[0], z: p[1], r: 5 }));
     isl.addPath([[st.x, st.z], [st.x * 0.55 + 5, st.z * 0.55 - 2], [5, -5]], 2.6);
     this.piers.forEach(({ p }) => isl.addPath([[5, -5], [p[0] * 0.7 + 1.5, p[1] * 0.7 - 1.5], [p[0], p[1]]], 1.8));
+    // 「风帆号」空港（西岸，飞往天空之城）
+    this.airPlan = planAirDock(isl, Math.PI);
+    const ar = this.airPlan.rootR;
+    isl.addPath([[5, -5], [-30, 2], [-(ar - 1), 0]], 2.4);
   },
   populate(isl, ctx, b) {
     const r = isl.rand;
@@ -69,6 +74,7 @@ export const portTheme = {
       const ph = r() * 6;
       ctx.anim.push((dt, t) => { ship.position.y = base.y + Math.sin(t * 0.7 + ph) * 0.4; ship.rotation.z = Math.sin(t * 0.5 + ph) * 0.03; });
     });
+    this.airDock = buildAirDock(isl, ctx, b, this.airPlan, { name: '云港 · 风帆号空港', roof: P.sageDark });
     // 群岛之间往来的飞艇
     for (let i = 0; i < 4; i++) {
       const ship = pr.airship({ s: 1.4 + r() * 0.6, stripe: [P.coral, P.sageDark, P.gold, P.lavender][i] });

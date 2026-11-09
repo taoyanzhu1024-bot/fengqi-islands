@@ -51,8 +51,13 @@ export class TrainCamera {
   }
 
   /** 计算目标位姿并写入相机 */
+  /** 视角名（飞艇使用“舷窗 / 船舱”等名称） */
+  get name() { return this.vehicle?.viewNames?.[this.current.id] ?? this.current.name; }
+
   update(dt, train, cam) {
+    this.vehicle = train;
     const id = this.current.id;
+    const vs = train.viewScale ?? 1;      // 车辆尺度（飞艇更大，外部镜头拉远）
     const desired = _v, look = _d;
     let rigid = false;
     if (id === 'window' || id === 'cabin') {
@@ -69,12 +74,12 @@ export class TrainCamera {
     } else if (id === 'follow') {
       const tan = train.moveTangent ?? train.tangent;
       const yaw = Math.atan2(-tan.x, -tan.z) + this.yaw;
-      const d = this.zoom.follow, pt = 0.17 + this.pitch;
-      look.copy(train.focusPos).add(new THREE.Vector3(0, 2.2, 0)).addScaledVector(tan, 6);
+      const d = this.zoom.follow * vs, pt = 0.17 + this.pitch;
+      look.copy(train.focusPos).add(new THREE.Vector3(0, 2.2 * vs, 0)).addScaledVector(tan, 6 * vs);
       desired.set(Math.sin(yaw) * Math.cos(pt) * d, Math.sin(pt) * d, Math.cos(yaw) * Math.cos(pt) * d).add(look);
     } else {
       this.orbit += dt * 0.03;
-      const yaw = this.orbit + this.yaw, d = this.zoom.panorama, pt = 0.42 + this.pitch * 0.6;
+      const yaw = this.orbit + this.yaw, d = this.zoom.panorama * Math.sqrt(vs), pt = 0.42 + this.pitch * 0.6;
       look.copy(train.focusPos);
       desired.set(Math.sin(yaw) * Math.cos(pt) * d, Math.sin(pt) * d, Math.cos(yaw) * Math.cos(pt) * d).add(look);
     }

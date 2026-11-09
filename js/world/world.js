@@ -9,6 +9,8 @@ import { mulberry32 } from '../core/noise.js';
 import { ISLANDS, ISLETS, ROUTE, UPDRAFTS, PALETTE as P } from '../config.js';
 import { Island } from './terrain.js';
 import { Railway } from './railway.js';
+import { Airway } from './airship.js';
+import { CloudWhale } from './whale.js';
 import { createSky, createCloudSea, CloudField, scatterClouds } from './sky.js';
 import { distantIslets, skyCastle, birdFlocks } from './background.js';
 import { Swarm, Puffs } from './particles.js';
@@ -90,6 +92,31 @@ export class World {
 
     this.rail.build(scene, physics, this.interact);
     this.branch.build(scene, physics, this.interact);
+    // 「风帆号」空中航线：云港岛西岸空港 ⇄ 艾瑟兰东北岸空港（闭合环线，飞艇始终向前飞行）
+    const port = byId.port, V = (x, y, z) => new THREE.Vector3(x, y, z);
+    this.airway = new Airway([
+      { island: port, plan: port.theme.airPlan, name: '云港 · 风帆号空港', hint: V(0, 0, 1) },
+      { island: city, plan: city.theme.airPlan, name: '艾瑟兰空港', hint: V(-0.48, 0, -0.88) },
+    ], {
+      waypoints: ([A, B]) => {
+        const a = A.pos, ta = A.dir, b = B.pos, tb = B.dir;
+        const rb = V(-tb.z, 0, tb.x);                 // 艾瑟兰港航向的右侧
+        return [
+          a.clone().addScaledVector(ta, -90), a.clone(), a.clone().addScaledVector(ta, 90),
+          a.clone().add(V(-40, 14, 220)), a.clone().add(V(-210, 48, 250)),
+          V(470, 110, -60), V(200, 165, -600),
+          b.clone().addScaledVector(tb, -270).add(V(0, -2, 0)),
+          b.clone().addScaledVector(tb, -95), b.clone(), b.clone().addScaledVector(tb, 95),
+          b.clone().addScaledVector(tb, 235).addScaledVector(rb, 70).add(V(0, 12, 0)),
+          b.clone().addScaledVector(tb, 140).addScaledVector(rb, 250).add(V(0, 20, 0)),
+          b.clone().addScaledVector(tb, -120).addScaledVector(rb, 380).add(V(0, 10, 0)),
+          V(760, 110, -600), V(a.x, a.y + 55, -230),
+        ];
+      },
+    }).build(scene, physics, this.interact);
+    this.rails.push(this.airway);
+    this.airship = this.airway.train;
+    this.whale = new CloudWhale(scene);
     this.puffs = new Puffs(80);
     scene.add(this.puffs.mesh);
     yield 0.75;
@@ -106,7 +133,7 @@ export class World {
     scene.add(this.clouds.build());
 
     const avoid = this.all.map((i) => ({ x: i.center.x, y: i.center.y, z: i.center.z, r: i.R }));
-    distantIslets(scene, avoid, this.rail.samples.concat(this.branch.samples));
+    distantIslets(scene, avoid, this.rail.samples.concat(this.branch.samples, this.airway.samples));
     this.castle = byId.city.group;           // 天空之城现在是真实可到达的岛屿
     birdFlocks(scene, this.anim, this.extraFlocks ?? []);
     yield 0.9;
@@ -229,6 +256,7 @@ export class World {
     this.camera = camera;
     for (const f of this.anim) f(dt, t);
     for (const rl of this.rails) rl.update(dt, this.puffs, extra.audio);
+    this.whale?.update(dt, { t, camera, ride: extra.ride, dn: this.dn, islands: this.all });
     this.clouds.update(dt, camera);
     // 植被按距离显隐（远处草叶小于一个像素，没必要绘制）
     for (const o of this.lods) o.visible = o.userData.lod.c.distanceTo(camera.position) < o.userData.lod.d;

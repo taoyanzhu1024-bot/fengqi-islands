@@ -168,7 +168,8 @@ async function boot() {
   const tintAmt = new THREE.Vector3(1, 1, 1);
   const tmp = new THREE.Vector3();
   const cA = new THREE.Color(), cB = new THREE.Color();
-  const nearestTrain = () => trains.reduce((a, b) => (a.focusPos.distanceTo(camera.position) < b.focusPos.distanceTo(camera.position) ? a : b));
+  const railTrains = trains.filter((v) => !v.isAirship);
+  const nearestTrain = () => railTrains.reduce((a, b) => (a.focusPos.distanceTo(camera.position) < b.focusPos.distanceTo(camera.position) ? a : b));
 
   // 自适应分辨率
   let perfT = 0, perfN = 0, pr = renderer.getPixelRatio();
@@ -243,9 +244,9 @@ async function boot() {
       const mine = v === train && ride.onTrain;
       for (const e of v.events.splice(0)) {
         if (e.type === 'toast') hud.toast(e.text, 3);
-        else if (e.type === 'approach' && mine) { hud.toast(`即将到达：${e.station.name} · ${e.station.island.cfg.sub}`, 4); audio.sfx(v.isAirship ? 'interact' : 'brake'); }
-        else if (e.type === 'arrive' && mine) { hud.toast(`${e.station.name} 到了 · 按 E 下${v.isAirship ? '船' : '车'}`, 3); audio.sfx('arrive'); }
-        else if (e.type === 'depart' && (mine || v.focusPos.distanceTo(camera.position) < 200)) audio.sfx(v.isAirship ? 'interact' : 'whistle');
+        else if (e.type === 'approach' && mine) { hud.toast(`即将到达：${e.station.name} · ${e.station.island.cfg.sub}`, 4); audio.sfx(v.isAirship ? 'horn' : 'brake'); }
+        else if (e.type === 'arrive' && mine) { hud.toast(`${e.station.name} 到了 · 按 E ${v.words.alight}`, 3); audio.sfx('arrive'); }
+        else if (e.type === 'depart' && (mine || v.focusPos.distanceTo(camera.position) < 200)) audio.sfx(v.isAirship ? 'horn' : 'whistle');
       }
       if (v._lastState === 'arriving' && v.state === 'idle' && v.focusPos.distanceTo(player.pos) < 150) audio.sfx('arrive');
       v._lastState = v.state;
@@ -265,11 +266,12 @@ async function boot() {
       const cur = train.stopped ? train.stationIdx : train.targetIdx;
       const dist = train.stopped ? 0 : Math.round(train.distAhead(train.stopS(train.targetIdx)));
       const stops = stations.map((s, i) => `<span class="${i === cur ? 'cur' : ''} ${train.destination === i ? 'dst' : ''}">${i + 1} ${s.island.name}</span>`).join('');
+      const w = train.words, stop = train.isAirship ? '港' : '站';
       const head = train.state === 'dwell'
-        ? `停靠 ${train.station.name} · ${Math.ceil(train.dwell)} 秒后发车`
-        : `下一站 ${train.nextStation.name} · ${dist} m · ${Math.round(train.speed * 3.6)} km/h`;
+        ? `停靠 ${train.station.name} · ${Math.ceil(train.dwell)} 秒后${w.depart}`
+        : `下一${stop} ${train.nextStation.name} · ${dist} m · ${Math.round(train.speed * 3.6)} km/h${train.isAirship ? ` · 高度 ${Math.round(train.group.position.y + 330)} m` : ''}`;
       hud.trainInfo(`<div class="t-title">${train.name} · ${head}</div><div class="stops">${stops}</div>
-        <div class="t-keys">${train.state === 'dwell' ? 'E 下车 · 空格 立即发车 · ' : 'E 在下一站停靠 · '}1-${stations.length} 选择目的站 · T 切换视角（${rig.trainViewName()}）${rig.trainViewId === 'cabin' ? ' · C 换座位' : ''} · 拖动环顾${['follow', 'panorama'].includes(rig.trainViewId) ? ' · 滚轮缩放' : ''}</div>`);
+        <div class="t-keys">${train.state === 'dwell' ? `E ${w.alight} · 空格 立即${w.depart} · ` : `E 在下一${stop}停靠 · `}1-${stations.length} 选择目的${stop} · T 切换视角（${rig.trainViewName()}）${rig.trainViewId === 'cabin' ? ' · C 换座位' : ''} · 拖动环顾${['follow', 'panorama'].includes(rig.trainViewId) ? ' · 滚轮缩放' : ''}</div>`);
     } else hud.trainInfo('');
 
     // —— 区域 ——
@@ -297,7 +299,11 @@ async function boot() {
     // 车窗观景为第一人称：隐藏自身角色模型
     player.object.visible = !(rig.mode === 'train' && rig.trainViewId === 'window');
     G.playerPos.value.copy(player.pos);
-    world.update(dt, t, camera, { train, player, audio });
+    world.update(dt, t, camera, { train, player, audio, ride });
+    for (const e of world.whale.events.splice(0)) {
+      if (e.type === 'toast') hud.toast(e.text, 3.5);
+      else if (e.type === 'sfx') audio.sfx(e.name, { vol: e.at ? Math.max(0.1, 1 - e.at.distanceTo(camera.position) / 1500) : e.vol });
+    }
 
     // —— 音频 ——
     let wf = 0;
@@ -306,7 +312,8 @@ async function boot() {
       region: ride.onTrain && !train.stopped ? 'sky' : theme, speed: player.speed, onTrain: ride.onTrain,
       interior: rig.interiorAmount?.() ?? 0.5, trainSpeed: (ride.onTrain ? train : nearestTrain()).speed * (train.isAirship && ride.onTrain ? 0 : 1),
       trainNear: ride.onTrain ? 1 : Math.max(0, 1 - nearestTrain().focusPos.distanceTo(camera.position) / 160),
-      propeller: world.airship ? Math.max(ride.onTrain && train.isAirship ? 1 : 0, 1 - world.airship.focusPos.distanceTo(camera.position) / 120) * world.airship.throttle : 0,
+      propeller: world.airship ? Math.max(ride.onTrain && train.isAirship ? 1 : 0, 1 - world.airship.focusPos.distanceTo(camera.position) / 160) * (0.4 + world.airship.throttle) : 0,
+      propRate: world.airship?.throttle ?? 0,
       glide: player.state === 'glide' ? 1 : 0, waterfall: wf, altitude: player.pos.y, night: world.sky?.night ?? 0,
     });
 

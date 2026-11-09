@@ -41,7 +41,7 @@ export class CameraRig {
   nextTrainView() { this.trainCam.next(this.cam); }
   setTrainView(i) { this.trainCam.setView(i, this.cam); }
   nextSeat() { this.trainCam.nextSeat(this.cam); }
-  trainViewName() { return this.trainCam.current.name; }
+  trainViewName() { return this.trainCam.name; }
   get trainViewId() { return this.trainCam.current.id; }
   interiorAmount() { return this.mode === 'train' ? this.trainCam.current.interior : 0; }
 

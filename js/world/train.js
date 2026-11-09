@@ -361,6 +361,11 @@ export class Train {
     const nCoach = opts.cars ?? 3;
     this.cars = [buildLoco()];
     for (let i = 1; i <= nCoach; i++) this.cars.push(buildCoach(i, { tail: i === nCoach }));
+    this.words = {
+      board: '按 <b>E</b> 乘坐云轨列车', call: '按 <b>E</b> 呼叫云轨列车', coming: '列车正在进站……',
+      alight: '下车', depart: '发车', wait: '请等待列车到站', settle: '请等待列车停稳',
+      welcome: (st) => `欢迎乘坐「${this.name}」· ${st.name} 发车`,
+    };
     this.dir = 1;                // 往返线：+1 驶向弧长增加方向，-1 反向（推拉运行，车头始终朝 +s）
     this.cars.forEach((c) => this.group.add(c));
     this.wheels = this.cars.flatMap((c) => c.userData.wheels);
