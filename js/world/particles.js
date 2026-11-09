@@ -133,7 +133,7 @@ export class Puffs {
 
 // ---------------- 瀑布 ----------------
 let _wfMat = null;
-function waterfallMat() {
+export function waterfallMat() {
   if (_wfMat) return _wfMat;
   _wfMat = new THREE.ShaderMaterial({
     transparent: true, depthWrite: false, side: THREE.DoubleSide,

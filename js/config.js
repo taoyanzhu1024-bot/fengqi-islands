@@ -65,6 +65,8 @@ export const ISLANDS = [
     center: [-420, 40, 700], radius: 64, depth: 170, seed: 53, hill: 1.5, mapColor: '#c9d7d0' },
   { id: 'snow', name: '雪鸣岛', sub: '高空寒风里的铃音', station: '雪鸣站', theme: 'snow',
     center: [-740, 120, -40], radius: 94, depth: 200, seed: 67, hill: 3, mapColor: '#e4ebf3', pathColor: 0xd6d3e2 },
+  { id: 'city', name: '天空之城 · 艾瑟兰', sub: '最高云层之上的古老城市', station: '艾瑟兰中央车站', theme: 'city',
+    center: [-420, 200, -1250], radius: 250, depth: 430, seed: 777, hill: 1.2, mapColor: '#f1e6cf', pathColor: 0xe3d6bd, meshJ: 60, meshS: 220 },
 ];
 
 // 主岛北侧的滑翔小浮岛
@@ -75,6 +77,8 @@ export const ISLETS = [
     center: [-75, -26, -192], radius: 14, depth: 38, seed: 103, hill: 0.5, mapColor: '#c5d6a8' },
   { id: 'islet3', name: '小灯屿', sub: '风的守灯人曾住在这里', theme: 'islet', variant: 'lantern',
     center: [150, -34, -215], radius: 21, depth: 55, seed: 107, hill: 0.8, mapColor: '#c5d6a8' },
+  { id: 'citylet', name: '云顶花屿', sub: '从王庭乘风而下的小花园', theme: 'islet', variant: 'bench',
+    center: [-512, 172, -1605], radius: 24, depth: 70, seed: 109, hill: 0.6, mapColor: '#c5d6a8' },
 ];
 
 // 上升气流（滑翔时进入可抬升）
@@ -86,4 +90,4 @@ export const UPDRAFTS = [
 
 export const ROUTE = ['main', 'flower', 'port', 'forest', 'lighthouse', 'snow'];
 
-export const CASTLE = { pos: [-520, 640, -3900], name: '天空之城 · 艾瑟兰' };
+export const CASTLE = { pos: [-420, 200, -1250], name: '天空之城 · 艾瑟兰' };

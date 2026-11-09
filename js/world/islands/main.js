@@ -38,6 +38,8 @@ export const mainTheme = {
     isl.addPath([cross, [-6, -30], [v[0] * 0.7, v[1] * 0.7], [v[0], v[1]]]);
     isl.addPath([[-6, -30], [d[0] * 0.6, d[1] * 0.75], [d[0], d[1]]]);
     isl.addPath([cross, [-25, 12], [MILL[0] + 4, MILL[1] - 2]]);
+    const wst = isl.stations?.[1];   // 天空支线 · 风栖西站
+    if (wst) isl.addPath([cross, [-30, -8], [wst.local.x * 0.8, wst.local.z - 4], [wst.local.x, wst.local.z]]);
     isl.addStream([[-34, 34], [-42, 46], [-50, 58], [-60, 70]]);
     this.cross = cross;
   },

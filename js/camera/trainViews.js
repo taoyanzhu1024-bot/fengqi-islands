@@ -67,15 +67,15 @@ export class TrainCamera {
       _q.setFromRotationMatrix(_m.extractRotation(M));
       look.copy(dirLocal.applyQuaternion(_q)).add(desired);
     } else if (id === 'follow') {
-      const tan = train.tangent;
+      const tan = train.moveTangent ?? train.tangent;
       const yaw = Math.atan2(-tan.x, -tan.z) + this.yaw;
       const d = this.zoom.follow, pt = 0.17 + this.pitch;
-      look.copy(train.cars[1].position).add(new THREE.Vector3(0, 2.2, 0)).addScaledVector(tan, 6);
+      look.copy(train.focusPos).add(new THREE.Vector3(0, 2.2, 0)).addScaledVector(tan, 6);
       desired.set(Math.sin(yaw) * Math.cos(pt) * d, Math.sin(pt) * d, Math.cos(yaw) * Math.cos(pt) * d).add(look);
     } else {
       this.orbit += dt * 0.03;
       const yaw = this.orbit + this.yaw, d = this.zoom.panorama, pt = 0.42 + this.pitch * 0.6;
-      look.copy(train.cars[1].position);
+      look.copy(train.focusPos);
       desired.set(Math.sin(yaw) * Math.cos(pt) * d, Math.sin(pt) * d, Math.cos(yaw) * Math.cos(pt) * d).add(look);
     }
     if (!rigid) {

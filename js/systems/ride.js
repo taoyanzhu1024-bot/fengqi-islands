@@ -38,15 +38,16 @@ export class RideController {
 
   /** 站台交互点的提示文字 */
   stationLabel(st) {
-    const tr = this.train;
+    const tr = st.rail.train;
     if (this.state !== RIDE.ON_FOOT || this.cooldown > 0) return null;
     if (tr.stopped && tr.stationIdx === st.index) return '按 <b>E</b> 乘坐云轨列车';
     if (tr.state === 'arriving' && tr.targetIdx === st.index) return '列车正在进站……';
     return '按 <b>E</b> 呼叫云轨列车';
   }
   stationAction(st) {
-    const tr = this.train;
+    const tr = st.rail.train;
     if (this.state !== RIDE.ON_FOOT || this.cooldown > 0) return;
+    this.train = tr;                 // 切换到该站所在线路的列车
     if (tr.stopped && tr.stationIdx === st.index) this.board(st);
     else tr.interact(st);
   }
@@ -58,7 +59,7 @@ export class RideController {
     this.set(RIDE.BOARDING);
     this.rig.enterTrain();
     this.audio?.sfx('door');
-    this.hud.toast(`欢迎乘坐「风栖号」· ${st.name} 发车`);
+    this.hud.toast(`欢迎乘坐「${this.train.name}」· ${st.name} 发车`);
   }
 
   alight() {

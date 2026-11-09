@@ -19,8 +19,9 @@ import { forestTheme } from './islands/forest.js';
 import { lighthouseTheme } from './islands/lighthouse.js';
 import { snowTheme } from './islands/snow.js';
 import { isletTheme } from './islands/islet.js';
+import { cityTheme } from './islands/city.js';
 
-const THEMES = { main: mainTheme, flower: flowerTheme, port: portTheme, forest: forestTheme, lighthouse: lighthouseTheme, snow: snowTheme, islet: isletTheme };
+const THEMES = { main: mainTheme, flower: flowerTheme, port: portTheme, forest: forestTheme, lighthouse: lighthouseTheme, snow: snowTheme, islet: isletTheme, city: cityTheme };
 
 class DiscSurface {
   constructor(x, z, r, top) { Object.assign(this, { x, z, r, top, thickness: 1 }); }
@@ -53,13 +54,30 @@ export class World {
     const byId = Object.fromEntries(this.all.map((i) => [i.id, i]));
     this.byId = byId;
     this.rail = new Railway(ROUTE.map((id) => byId[id]));
+    // 天空支线：风栖主岛西站 ⇄ 艾瑟兰中央车站（往返线，不改动原有环线）
+    const city = byId.city, main = byId.main;
+    this.branch = new Railway([main, city], {
+      name: 'branch', closed: false, cars: 2,
+      stations: [
+        { island: main, th: Math.PI, dirSign: 1, name: '风栖西站 · 天空支线' },
+        { island: city, th: 1.31, dirSign: 1, name: '艾瑟兰中央车站' },
+      ],
+      waypoints: ([A, B]) => [
+        A.pos.clone().addScaledVector(A.dir, -60), A.pos.clone(), A.pos.clone().addScaledVector(A.dir, 70),
+        A.pos.clone().addScaledVector(A.dir, 170).add(new THREE.Vector3(-30, 10, 0)),
+        new THREE.Vector3(-250, 70, -430), new THREE.Vector3(-70, 150, -760),
+        B.pos.clone().addScaledVector(B.dir, -200).add(new THREE.Vector3(0, -2, 0)),
+        B.pos.clone().addScaledVector(B.dir, -70), B.pos.clone(), B.pos.clone().addScaledVector(B.dir, 60),
+      ],
+    });
+    this.rails = [this.rail, this.branch];
     for (const isl of this.all) isl.theme.prepare?.call(isl.theme, isl);
     yield 0.12;
 
     const ctx = this.makeCtx();
     let k = 0;
     for (const isl of this.all) {
-      isl.buildMeshes({ palette: isl.theme.rockPalette, J: isl.R < 30 ? 12 : 30, S: isl.R < 30 ? 56 : 120 });
+      isl.buildMeshes({ palette: isl.theme.rockPalette, J: isl.cfg.meshJ ?? (isl.R < 30 ? 12 : 30), S: isl.cfg.meshS ?? (isl.R < 30 ? 56 : 120), K: isl.cfg.meshK });
       const b = new Batcher();
       isl.theme.populate?.call(isl.theme, isl, ctx, b);
       b.build().forEach((m) => isl.group.add(m));
@@ -71,6 +89,7 @@ export class World {
     }
 
     this.rail.build(scene, physics, this.interact);
+    this.branch.build(scene, physics, this.interact);
     this.puffs = new Puffs(80);
     scene.add(this.puffs.mesh);
     yield 0.75;
@@ -78,8 +97,8 @@ export class World {
     // 云：云海隆起、空中零散云、轨道下的托云、瀑布水雾
     scatterClouds(this.clouds, this.islands.map((i) => ({ x: i.center.x, y: i.center.y, z: i.center.z, r: i.R * 1.4 })));
     const fr = {};
-    for (let s = 0; s < this.rail.length; s += 55) {
-      this.rail.frameAt(s, fr);
+    for (const rl of [this.rail, this.branch]) for (let s = 0; s < rl.length; s += 55) {
+      rl.frameAt(s, fr);
       if (this.all.some((i) => Math.hypot(i.center.x - fr.pos.x, i.center.z - fr.pos.z) < i.R + 20)) continue;
       this.clouds.add(fr.pos.x, fr.pos.y - 5, fr.pos.z, 16 + Math.random() * 14, 0.85, 0.45);
     }
@@ -87,9 +106,9 @@ export class World {
     scene.add(this.clouds.build());
 
     const avoid = this.all.map((i) => ({ x: i.center.x, y: i.center.y, z: i.center.z, r: i.R }));
-    distantIslets(scene, avoid, this.rail.samples);
-    this.castle = skyCastle(scene);
-    birdFlocks(scene, this.anim);
+    distantIslets(scene, avoid, this.rail.samples.concat(this.branch.samples));
+    this.castle = byId.city.group;           // 天空之城现在是真实可到达的岛屿
+    birdFlocks(scene, this.anim, this.extraFlocks ?? []);
     yield 0.9;
 
     // 上升气流
@@ -113,6 +132,7 @@ export class World {
     const self = this;
     this.mists = [];
     return {
+      world: this,
       scene: this.scene,
       anim: this.anim,
       at(isl, x, z, ry = 0, dy = 0) {
@@ -147,10 +167,11 @@ export class World {
         self.scene.add(ring);
         self.anim.push((dt, t) => { ring.scale.setScalar(1 + Math.sin(t * 2) * 0.08); });
       },
-      glideDeck(isl, x, z, th) {
+      glideDeck(isl, x, z, th, name = '乘风台') {
         const pos = new THREE.Vector3(x, (isl.localHeight(x, z) ?? 0) + 1.2, z).add(isl.center);
-        self.glideDeckPos = pos;
-        self.interact.push({ pos, radius: 5, label: () => '按 <b>E</b> 乘风起跳（滑翔）', action: () => self.onGlideDeck?.(pos, th), priority: 2 });
+        (self.glideDecks ||= []).push({ pos, th, name });
+        self.glideDeckPos ??= pos;
+        self.interact.push({ pos, radius: 5, label: () => `按 <b>E</b> 乘风起跳 · ${name}`, action: () => self.onGlideDeck?.(pos, th), priority: 2 });
       },
       mist(p, s) { self.mists.push({ p, s }); },
       // 沿小径铺石板
@@ -198,9 +219,16 @@ export class World {
     return best;
   }
 
+  nearestStation(p) {
+    let best = null, bd = 1e9;
+    for (const rl of this.rails) for (const st of rl.stations) { const d = st.platformCenter.distanceTo(p); if (d < bd) { bd = d; best = st; } }
+    return best;
+  }
+
   update(dt, t, camera, extra = {}) {
+    this.camera = camera;
     for (const f of this.anim) f(dt, t);
-    this.rail.update(dt, this.puffs, extra.audio);
+    for (const rl of this.rails) rl.update(dt, this.puffs, extra.audio);
     this.clouds.update(dt, camera);
     // 植被按距离显隐（远处草叶小于一个像素，没必要绘制）
     for (const o of this.lods) o.visible = o.userData.lod.c.distanceTo(camera.position) < o.userData.lod.d;

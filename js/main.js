@@ -74,6 +74,7 @@ async function boot() {
   const input = new Input();
   const world = new World(scene, physics);
   const hud = new HUD(world);
+  world.quality = quality;
 
   // ---------------- 分步构建世界 ----------------
   const gen = world.build();
@@ -111,11 +112,10 @@ async function boot() {
 
   const rig = new CameraRig(camera, canvas, physics);
   const TOURS = tours(world);
-  const train = world.rail.train;
-  const stations = world.rail.stations;
-  const ride = new RideController({ train, rail: world.rail, player, rig, hud, audio, physics });
-  world.rail.stationLabel = (st) => ride.stationLabel(st);
-  world.rail.stationAction = (st) => ride.stationAction(st);
+  const trains = world.rails.map((r) => r.train);
+  const ride = new RideController({ train: trains[0], rail: world.rail, player, rig, hud, audio, physics });
+  for (const rl of world.rails) { rl.stationLabel = (st) => ride.stationLabel(st); rl.stationAction = (st) => ride.stationAction(st); }
+  const vehicles = () => trains.concat(world.vehicles ?? []);
 
   // ---------------- 交互 ----------------
   const fadeTeleport = (fn) => {
@@ -144,7 +144,7 @@ async function boot() {
   const settings = new SettingsPanel({
     audio,
     getState: () => ({ quality, railMode: world.rail.mode }),
-    onQuality: (q) => { quality = q; localStorage.setItem('fengqi.quality', q); renderer.setPixelRatio(Math.min(devicePixelRatio, QUALITY[q].pr)); maxPR = renderer.getPixelRatio(); pr = maxPR; renderer.setSize(innerWidth, innerHeight); post.setSize(); applyShadowQuality(); },
+    onQuality: (q) => { quality = q; world.quality = q; localStorage.setItem('fengqi.quality', q); renderer.setPixelRatio(Math.min(devicePixelRatio, QUALITY[q].pr)); maxPR = renderer.getPixelRatio(); pr = maxPR; renderer.setSize(innerWidth, innerHeight); post.setSize(); applyShadowQuality(); },
     onRailMode: (m) => world.rail.setMode?.(m),
     onTime: (t) => world.sky?.setTimePreset?.(t),
   });
@@ -168,7 +168,7 @@ async function boot() {
   const tintAmt = new THREE.Vector3(1, 1, 1);
   const tmp = new THREE.Vector3();
   const cA = new THREE.Color(), cB = new THREE.Color();
-  let lastTrainState = train.state;
+  const nearestTrain = () => trains.reduce((a, b) => (a.focusPos.distanceTo(camera.position) < b.focusPos.distanceTo(camera.position) ? a : b));
 
   // 自适应分辨率
   let perfT = 0, perfN = 0, pr = renderer.getPixelRatio();
@@ -205,7 +205,7 @@ async function boot() {
       if (input.was('KeyH')) hud.toggleKeys();
       if (input.was('KeyV') && player.state !== 'locked') startTour('world');
       if (input.was('KeyR') && !ride.onTrain && player.state !== 'locked') {
-        const st = world.rail.nearestStation(player.pos);
+        const st = world.nearestStation(player.pos);
         fadeTeleport(() => { player.teleport(ride.safeAnchor(st), st.alightHeading); rig.yaw = player.heading + Math.PI; });
         hud.toast(`返回 ${st.name}`);
       }
@@ -213,8 +213,9 @@ async function boot() {
 
     // —— 玩家 / 列车 / 乘车状态机 ——
     player.update(dt, input, rig.yaw, events);
-    train.update(dt, world.puffs);
+    for (const v of vehicles()) v.update(dt, world.puffs);
     let promptHtml = ride.update(dt, input) ?? '';
+    const train = ride.train, stations = train.rail.stations;
     if (ride.onTrain && rig.mode === 'train') {
       if (input.take('KeyT')) { rig.nextTrainView(); hud.toast(rig.trainViewName(), 1.6); }
       if (input.take('KeyC')) rig.nextSeat();
@@ -238,15 +239,16 @@ async function boot() {
     hud.prompt(promptHtml);
 
     // —— 事件 ——
-    for (const e of train.events.splice(0)) {
-      if (e.type === 'toast') hud.toast(e.text, 3);
-      else if (e.type === 'approach') { hud.toast(`即将到达：${e.station.name} · ${e.station.island.cfg.sub}`, 4); audio.sfx('brake'); }
-      else if (e.type === 'arrive') { hud.toast(`${e.station.name} 到了 · 按 E 下车`, 3); audio.sfx('arrive'); }
-      else if (e.type === 'depart') audio.sfx('whistle');
-    }
-    if (train.state !== lastTrainState) {
-      if (train.state === 'idle' && lastTrainState === 'arriving') audio.sfx('arrive');
-      lastTrainState = train.state;
+    for (const v of vehicles()) {
+      const mine = v === train && ride.onTrain;
+      for (const e of v.events.splice(0)) {
+        if (e.type === 'toast') hud.toast(e.text, 3);
+        else if (e.type === 'approach' && mine) { hud.toast(`即将到达：${e.station.name} · ${e.station.island.cfg.sub}`, 4); audio.sfx(v.isAirship ? 'interact' : 'brake'); }
+        else if (e.type === 'arrive' && mine) { hud.toast(`${e.station.name} 到了 · 按 E 下${v.isAirship ? '船' : '车'}`, 3); audio.sfx('arrive'); }
+        else if (e.type === 'depart' && (mine || v.focusPos.distanceTo(camera.position) < 200)) audio.sfx(v.isAirship ? 'interact' : 'whistle');
+      }
+      if (v._lastState === 'arriving' && v.state === 'idle' && v.focusPos.distanceTo(player.pos) < 150) audio.sfx('arrive');
+      v._lastState = v.state;
     }
     for (const e of events.splice(0)) {
       if (e.type === 'fell') fadeTeleport(() => { player.teleport(player.lastSafe.clone()); });
@@ -266,14 +268,14 @@ async function boot() {
       const head = train.state === 'dwell'
         ? `停靠 ${train.station.name} · ${Math.ceil(train.dwell)} 秒后发车`
         : `下一站 ${train.nextStation.name} · ${dist} m · ${Math.round(train.speed * 3.6)} km/h`;
-      hud.trainInfo(`<div class="t-title">风栖号 · ${head}</div><div class="stops">${stops}</div>
-        <div class="t-keys">${train.state === 'dwell' ? 'E 下车 · 空格 立即发车 · ' : 'E 在下一站停靠 · '}1-6 选择目的站 · T 切换视角（${rig.trainViewName()}）${rig.trainViewId === 'cabin' ? ' · C 换座位' : ''} · 拖动环顾${['follow', 'panorama'].includes(rig.trainViewId) ? ' · 滚轮缩放' : ''}</div>`);
+      hud.trainInfo(`<div class="t-title">${train.name} · ${head}</div><div class="stops">${stops}</div>
+        <div class="t-keys">${train.state === 'dwell' ? 'E 下车 · 空格 立即发车 · ' : 'E 在下一站停靠 · '}1-${stations.length} 选择目的站 · T 切换视角（${rig.trainViewName()}）${rig.trainViewId === 'cabin' ? ' · C 换座位' : ''} · 拖动环顾${['follow', 'panorama'].includes(rig.trainViewId) ? ' · 滚轮缩放' : ''}</div>`);
     } else hud.trainInfo('');
 
     // —— 区域 ——
     const reg = ride.onTrain && !train.stopped ? null : world.regionAt(player.pos);
     if (reg) hud.setRegion(reg.id, reg.name, reg.cfg.sub);
-    else hud.setRegion(ride.onTrain ? 'rail' : 'sky', ride.onTrain ? '云轨列车 · 风栖号' : '云海上空', ride.onTrain ? '穿行在群岛之间' : '风会带你去任何地方');
+    else hud.setRegion(ride.onTrain ? 'rail:' + train.name : 'sky', ride.onTrain ? train.name : '云海上空', ride.onTrain ? (train.isAirship ? '在云层之上航行' : '穿行在群岛之间') : '风会带你去任何地方');
     const theme = reg ? reg.cfg.theme : 'sky';
     const am = AMB[theme] ?? AMB.sky;
     ambient.uniforms.uColorA.value.lerp(cA.set(am.a), 1 - Math.exp(-dt * 2));
@@ -287,7 +289,7 @@ async function boot() {
 
     // —— 昼夜 ——
     dn.update(dt);
-    train.night = dn.night;
+    for (const v of vehicles()) v.night = dn.night;
     hud.clock(dn.clock, dn.night > 0.5 ? '夜' : dn.dusk > 0.4 ? (dn.t < 0.5 ? '晨' : '暮') : '昼');
 
     // —— 相机 / 世界 ——
@@ -302,8 +304,9 @@ async function boot() {
     for (const m of world.mists) { const d = Math.hypot(m.p.x - player.pos.x, m.p.z - player.pos.z); wf = Math.max(wf, 1 - d / 70); }
     audio.update(dt, {
       region: ride.onTrain && !train.stopped ? 'sky' : theme, speed: player.speed, onTrain: ride.onTrain,
-      interior: rig.interiorAmount?.() ?? 0.5, trainSpeed: train.speed,
-      trainNear: Math.max(0, 1 - train.midPosition.distanceTo(camera.position) / 160),
+      interior: rig.interiorAmount?.() ?? 0.5, trainSpeed: (ride.onTrain ? train : nearestTrain()).speed * (train.isAirship && ride.onTrain ? 0 : 1),
+      trainNear: ride.onTrain ? 1 : Math.max(0, 1 - nearestTrain().focusPos.distanceTo(camera.position) / 160),
+      propeller: world.airship ? Math.max(ride.onTrain && train.isAirship ? 1 : 0, 1 - world.airship.focusPos.distanceTo(camera.position) / 120) * world.airship.throttle : 0,
       glide: player.state === 'glide' ? 1 : 0, waterfall: wf, altitude: player.pos.y, night: world.sky?.night ?? 0,
     });
 
@@ -315,7 +318,7 @@ async function boot() {
     sun.target.position.copy(tmp);
     sun.position.copy(tmp).addScaledVector(dn.lightDir, 300);
 
-    hud.update(dt, player, train, { x: CASTLE.pos[0], z: CASTLE.pos[2] });
+    hud.update(dt, player, vehicles(), { x: CASTLE.pos[0], z: CASTLE.pos[2] });
     input.endFrame();
   }
 
@@ -331,7 +334,7 @@ async function boot() {
   requestAnimationFrame(frame);
 
   window.__game = {
-    world, player, train, rig, ride, audio, dn, renderer, scene, camera, input, RIDE, ready: true,
+    world, player, get train() { return ride.train; }, trains, rig, ride, audio, dn, renderer, scene, camera, input, RIDE, ready: true,
     // 测试接口：无渲染快进模拟；keys 为每步都按下的键
     simulate(sec, dt = 1 / 30) { const n = Math.round(sec / dt); for (let i = 0; i < n; i++) update(dt); },
     press(code) { input.tap(code); update(1 / 30); },

@@ -62,7 +62,7 @@ export class HUD {
   toggleKeys() { this.el.keys.classList.toggle('hidden'); }
 
   // —— 小地图 ——
-  bounds() { return { x0: -950, x1: 1250, z0: -720, z1: 1000 }; }
+  bounds() { return { x0: -950, x1: 1250, z0: -1700, z1: 1000 }; }
   toMap(x, z) {
     const b = this.bounds(), W = this.el.map.width, H = this.el.map.height;
     const s = Math.min(W / (b.x1 - b.x0), H / (b.z1 - b.z0));
@@ -74,10 +74,13 @@ export class HUD {
     const c = document.createElement('canvas'); c.width = W; c.height = H;
     const g = c.getContext('2d');
     // 轨道
-    g.strokeStyle = 'rgba(205,165,80,0.95)'; g.lineWidth = 2; g.setLineDash([5, 3]);
-    g.beginPath();
-    this.world.rail.samples.forEach((p, i) => { const [x, y] = this.toMap(p.x, p.z); i ? g.lineTo(x, y) : g.moveTo(x, y); });
-    g.closePath(); g.stroke(); g.setLineDash([]);
+    for (const rl of this.world.rails) {
+      g.strokeStyle = rl.closed ? 'rgba(205,165,80,0.95)' : 'rgba(150,170,200,0.95)'; g.lineWidth = 2; g.setLineDash([5, 3]);
+      g.beginPath();
+      rl.samples.forEach((p, i) => { const [x, y] = this.toMap(p.x, p.z); i ? g.lineTo(x, y) : g.moveTo(x, y); });
+      if (rl.closed) g.closePath();
+      g.stroke(); g.setLineDash([]);
+    }
     // 岛屿
     for (const isl of this.world.all) {
       const [x, y, s] = this.toMap(isl.center.x, isl.center.z);
@@ -99,7 +102,7 @@ export class HUD {
       g.fillStyle = 'rgba(70,72,84,0.85)';
       g.fillText(isl.name, x, y + isl.R * s + 12);
     }
-    for (const st of this.world.rail.stations) {
+    for (const st of this.world.rails.flatMap((r) => r.stations)) {
       const [x, y] = this.toMap(st.pos.x, st.pos.z);
       g.fillStyle = '#fff8e8'; g.strokeStyle = '#b8903c'; g.lineWidth = 1.5;
       g.beginPath(); g.arc(x, y, 3.2, 0, Math.PI * 2); g.fill(); g.stroke();
@@ -111,15 +114,14 @@ export class HUD {
     const g = this.ctx, W = this.el.map.width, H = this.el.map.height;
     g.clearRect(0, 0, W, H);
     g.drawImage(this.mapBase, 0, 0);
-    // 天空之城方向
-    const [cx, cy] = this.toMap(0, 0);
-    const a = Math.atan2(castle.z - 0, castle.x - 0);
-    g.fillStyle = 'rgba(130,120,170,0.8)'; g.font = '10px serif'; g.textAlign = 'center';
-    g.fillText('↑ 天空之城', Math.min(W - 30, Math.max(30, cx + Math.cos(a) * 200)), 12);
-    // 列车
-    const [tx, ty] = this.toMap(train.cars[0].position.x, train.cars[0].position.z);
-    g.fillStyle = '#6f8f74'; g.strokeStyle = '#fff'; g.lineWidth = 1.5;
-    g.beginPath(); g.rect(tx - 3.5, ty - 3.5, 7, 7); g.fill(); g.stroke();
+    // 列车 / 飞艇
+    for (const v of [].concat(train)) {
+      if (!v) continue;
+      const p = v.mapPos ?? v.cars[0].position;
+      const [tx, ty] = this.toMap(p.x, p.z);
+      g.fillStyle = v.mapColor ?? '#6f8f74'; g.strokeStyle = '#fff'; g.lineWidth = 1.5;
+      g.beginPath(); v.isAirship ? g.ellipse(tx, ty, 5, 3, 0, 0, Math.PI * 2) : g.rect(tx - 3.5, ty - 3.5, 7, 7); g.fill(); g.stroke();
+    }
     // 玩家
     const [px, py] = this.toMap(player.pos.x, player.pos.z);
     g.save(); g.translate(px, py); g.rotate(-player.heading + Math.PI);

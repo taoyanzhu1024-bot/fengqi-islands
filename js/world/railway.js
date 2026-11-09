@@ -3,7 +3,7 @@
 // ============================================================
 import * as THREE from 'three';
 import { Batcher, GEO, M, T } from '../core/batcher.js';
-import { wc, MATS, textTexture, RAIL, G } from '../core/materials.js';
+import { wc, MATS, textTexture, RAILS, G } from '../core/materials.js';
 import { BoxSurface } from '../core/physics.js';
 import { PALETTE as P } from '../config.js';
 import { lamp, bench, house } from './props.js';
@@ -16,58 +16,76 @@ const PLATFORM_TOP = 0.95;
 
 export class Railway {
   /** 第一步：根据岛屿规划车站（必须在岛屿网格生成前调用，以便平整站台地形） */
-  constructor(route) {
+  /**
+   * @param route 环线经过的岛屿（closed 线路自动规划站点）
+   * @param opts { name:'loop'|'branch', closed=true, stations:[{island, th, dirSign, name}], waypoints:(stations)=>Vector3[], cars }
+   */
+  constructor(route, opts = {}) {
     this.route = route;
+    this.name = opts.name ?? 'loop';
+    this.closed = opts.closed ?? true;
+    this.opts = opts;
+    this.U = RAILS[this.name];
     this.mode = localStorage.getItem('fengqi.railMode') === 'classic' ? 'classic' : 'cloud';
     this.stations = [];
     const N = route.length;
     const cen = new THREE.Vector3();
     route.forEach((i) => cen.add(i.center));
     cen.divideScalar(N);
-    route.forEach((isl, i) => {
+    const specs = opts.stations ?? route.map((isl, i) => {
       const prev = route[(i - 1 + N) % N].center, next = route[(i + 1) % N].center;
       const dir = next.clone().sub(prev).setY(0).normalize();
-      let perp = new THREE.Vector3(-dir.z, 0, dir.x);
+      const perp = new THREE.Vector3(-dir.z, 0, dir.x);
       const side = isl.cfg.stationSide ?? Math.sign(perp.dot(isl.center.clone().sub(cen)) || 1);
       perp.multiplyScalar(side);
-      const th = Math.atan2(perp.z, perp.x);
+      return { island: isl, th: Math.atan2(perp.z, perp.x), dir, name: isl.cfg.station };
+    });
+    specs.forEach((sp, i) => {
+      const isl = sp.island, th = sp.th;
+      const perp = new THREE.Vector3(Math.cos(th), 0, Math.sin(th));
+      const dir = sp.dir ?? new THREE.Vector3(-perp.z, 0, perp.x).multiplyScalar(sp.dirSign ?? 1);
       let maxRim = 0;
       for (let k = -12; k <= 12; k++) maxRim = Math.max(maxRim, isl.rim(th + k * 0.06));
       const D = maxRim + 5.5;
       const pos = isl.center.clone().addScaledVector(perp, D);
       pos.y = isl.center.y + 0.5;
       const rimHere = isl.rim(th);
-      const st = { index: i, island: isl, name: isl.cfg.station, pos, dir, perp, th, D, rimHere };
+      const st = { index: i, rail: this, island: isl, name: sp.name, pos, dir, perp, th, D, rimHere };
       // 平整站台附近地形（局部坐标）
       const fl = perp.clone().multiplyScalar(rimHere - 6);
       isl.flats.push({ x: fl.x, z: fl.z, r: 16, blend: 10, h: 0.5 + PLATFORM_TOP - 0.08 });
       const k1 = perp.clone().multiplyScalar(rimHere - 4);
       isl.keep.push({ x: k1.x, z: k1.z, r: 18 });
       st.local = perp.clone().multiplyScalar(rimHere - 14); // 站台内侧入口（局部）
-      isl.station = st;
+      if (!isl.station) isl.station = st;
+      (isl.stations ||= []).push(st);
       this.stations.push(st);
     });
   }
 
   /** 第二步：生成曲线与可视化 */
   build(scene, physics, interact) {
-    const pts = [];
     const S = this.stations, N = S.length;
-    const lifts = [24, -34, 14, -26, 20, 6];
-    for (let i = 0; i < N; i++) {
-      const a = S[i], b = S[(i + 1) % N];
-      pts.push(a.pos.clone().addScaledVector(a.dir, -STRAIGHT), a.pos.clone(), a.pos.clone().addScaledVector(a.dir, STRAIGHT));
-      const ea = a.pos.clone().addScaledVector(a.dir, STRAIGHT + 110);
-      const eb = b.pos.clone().addScaledVector(b.dir, -STRAIGHT - 110);
-      ea.y = a.pos.y; eb.y = b.pos.y;
-      const mid = ea.clone().lerp(eb, 0.5);
-      const seg = eb.clone().sub(ea); const L = seg.length();
-      const lat = new THREE.Vector3(-seg.z, 0, seg.x).normalize();
-      mid.addScaledVector(lat, (i % 2 ? 1 : -1) * L * 0.12);
-      mid.y += lifts[i % lifts.length];
-      pts.push(ea, mid, eb);
+    let pts;
+    if (this.opts.waypoints) pts = this.opts.waypoints(S, STRAIGHT);
+    else {
+      pts = [];
+      const lifts = [24, -34, 14, -26, 20, 6];
+      for (let i = 0; i < N; i++) {
+        const a = S[i], b = S[(i + 1) % N];
+        pts.push(a.pos.clone().addScaledVector(a.dir, -STRAIGHT), a.pos.clone(), a.pos.clone().addScaledVector(a.dir, STRAIGHT));
+        const ea = a.pos.clone().addScaledVector(a.dir, STRAIGHT + 110);
+        const eb = b.pos.clone().addScaledVector(b.dir, -STRAIGHT - 110);
+        ea.y = a.pos.y; eb.y = b.pos.y;
+        const mid = ea.clone().lerp(eb, 0.5);
+        const seg = eb.clone().sub(ea); const L = seg.length();
+        const lat = new THREE.Vector3(-seg.z, 0, seg.x).normalize();
+        mid.addScaledVector(lat, (i % 2 ? 1 : -1) * L * 0.12);
+        mid.y += lifts[i % lifts.length];
+        pts.push(ea, mid, eb);
+      }
     }
-    this.curve = new THREE.CatmullRomCurve3(pts, true, 'centripetal');
+    this.curve = new THREE.CatmullRomCurve3(pts, this.closed, 'centripetal');
     this.curve.arcLengthDivisions = 6000;
     this.length = this.curve.getLength();
     // 每个车站在曲线上的弧长位置
@@ -81,13 +99,13 @@ export class Railway {
     });
     this.buildTrack(scene);
     S.forEach((st) => this.buildStation(st, scene, physics, interact));
-    this.train = new Train(this);
+    this.train = new Train(this, { cars: this.opts.cars });
     scene.add(this.train.group);
     return this;
   }
 
   frameAt(s, out = {}) {
-    const u = (((s % this.length) + this.length) % this.length) / this.length;
+    const u = this.closed ? (((s % this.length) + this.length) % this.length) / this.length : Math.min(1, Math.max(0, s / this.length));
     out.pos = this.curve.getPointAt(u, out.pos || new THREE.Vector3());
     out.tan = this.curve.getTangentAt(u, out.tan || new THREE.Vector3());
     out.right = (out.right || new THREE.Vector3()).crossVectors(out.tan, UP).normalize();
@@ -100,13 +118,13 @@ export class Railway {
     const F = Math.floor(this.length / step);
     const ds = this.length / F;
     const frames = [];
-    for (let i = 0; i < F; i++) frames.push(this.frameAt(i * ds, {}));
+    for (let i = 0; i < (this.closed ? F : F + 1); i++) frames.push(this.frameAt(i * ds, {}));
     this.samples = frames.map((f) => f.pos.clone());
 
     // 沿曲线扫掠截面；每个顶点记录弧长 aS 与所在截面中心 aC（供“逐段升起”shader 使用）
     const SEGF = 3;                       // 每段 3 个采样间隔
     const segLen = ds * SEGF;
-    RAIL.uSeg.value = segLen;
+    this.U.uSeg.value = segLen;
     this.segLen = segLen;
     // 每段独立的扫掠网格（段与段之间不共享三角形 → 各段可单独升降，不会拉出连接面）
     // 顶点 aS 记录所在段的中心弧长，aC 记录截面中心
@@ -119,7 +137,7 @@ export class Railway {
         const base = pos.length / 3;
         const i0 = k * SEGF, i1 = Math.min((k + 1) * SEGF, F);
         for (let i = i0; i <= i1; i++) {
-          const f = frames[i % F];
+          const f = frames[this.closed ? i % F : i];
           for (const [x, y] of profile) {
             pos.push(f.pos.x + f.right.x * x + f.up.x * y, f.pos.y + f.right.y * x + f.up.y * y, f.pos.z + f.right.z * x + f.up.z * y);
             sArr.push(exact ? i * ds : sMid); cArr.push(f.pos.x, f.pos.y, f.pos.z);
@@ -140,7 +158,7 @@ export class Railway {
     };
     // shift：越大越晚成形 → 先支架、再枕木、最后轨条
     const sweep = (profile, color, shift) => {
-      const m = new THREE.Mesh(sweepGeo(profile), wc({ color, flat: true, side: THREE.DoubleSide, grain: 0.6, rail: shift }));
+      const m = new THREE.Mesh(sweepGeo(profile), wc({ color, flat: true, side: THREE.DoubleSide, grain: 0.6, rail: shift, railSet: this.name }));
       m.castShadow = false; m.receiveShadow = true; m.frustumCulled = false;
       return m;
     };
@@ -170,13 +188,13 @@ export class Railway {
       return im;
     };
     const sleeperN = Math.floor(this.length / 1.6);
-    const sleepers = instanced(new THREE.BoxGeometry(2.3, 0.14, 0.34), wc({ color: 0xc9a27e, flat: true, rail: 15, inst: true }), sleeperN, 1.6,
+    const sleepers = instanced(new THREE.BoxGeometry(2.3, 0.14, 0.34), wc({ color: 0xc9a27e, flat: true, rail: 15, inst: true, railSet: this.name }), sleeperN, 1.6,
       (f) => dummy.position.copy(f.pos).addScaledVector(f.up, -0.25));
     sleepers.receiveShadow = true;
     const arcN = Math.floor(this.length / 14);
     const arcGeo = new THREE.TorusGeometry(1.0, 0.07, 5, 16, Math.PI);
     arcGeo.rotateZ(Math.PI);
-    const arcs = instanced(arcGeo, wc({ color: P.gold, grain: 0.4, rail: 0, inst: true }), arcN, 14,
+    const arcs = instanced(arcGeo, wc({ color: P.gold, grain: 0.4, rail: 0, inst: true, railSet: this.name }), arcN, 14,
       (f) => dummy.position.copy(f.pos).addScaledVector(f.up, -0.45));
     const lanterns = new THREE.InstancedMesh(new THREE.OctahedronGeometry(0.28, 0), new THREE.MeshBasicMaterial({ color: P.glowWarm }), arcN);
     for (let i = 0; i < arcN; i++) {
@@ -194,9 +212,9 @@ export class Railway {
     ribbonGeo.setAttribute('aSide', new THREE.BufferAttribute(side, 1));
     this.ribbonMat = new THREE.ShaderMaterial({
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
-      uniforms: { ...RAIL, uTime: G.time, uActive: { value: 0 } },
-      vertexShader: `attribute float aS; attribute float aSide; uniform float uRailS, uRailL; varying float vAhead; varying float vSide; varying float vS;
-        void main(){ vAhead = mod(aS - uRailS + uRailL*4.0, uRailL); vSide = aSide; vS = aS; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+      uniforms: { ...this.U, uTime: G.time, uActive: { value: 0 } },
+      vertexShader: `attribute float aS; attribute float aSide; uniform float uRailS, uRailL, uClosed, uDir; varying float vAhead; varying float vSide; varying float vS;
+        void main(){ vAhead = uClosed > 0.5 ? mod(aS - uRailS + uRailL*4.0, uRailL) : max((aS - uRailS) * uDir, -1.0); vSide = aSide; vS = aS; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
       fragmentShader: `uniform float uTime, uActive, uRailMode, uNear, uFar; varying float vAhead; varying float vSide; varying float vS;
         void main(){
           float band = smoothstep(uNear * 0.4, uNear, vAhead) * (1.0 - smoothstep(uFar * 0.8, uFar * 1.35, vAhead));
@@ -213,24 +231,27 @@ export class Railway {
     grp.add(ribbon);
     scene.add(grp);
     this.trackGroup = grp;
-    RAIL.uRailL.value = this.length;
-    for (let i = 0; i < 8; i++) RAIL.uSt.value[i] = this.stations[i % this.stations.length].s; // 空槽重复填充，避免误判
+    this.U.uRailL.value = this.length;
+    this.U.uClosed.value = this.closed ? 1 : 0;
+    for (let i = 0; i < 8; i++) this.U.uSt.value[i] = this.stations[i % this.stations.length].s; // 空槽重复填充，避免误判
   }
 
   /** 每帧：同步云轨升起参数，并在成形区域喷出少量云雾 */
   update(dt, puffs, audio) {
-    const tr = this.train;
-    RAIL.uRailS.value = tr.s;
-    RAIL.uTail.value = tr.totalLen;
-    RAIL.uRailMode.value = this.mode === 'classic' ? 0 : 1;
+    const tr = this.train, U = this.U;
+    // 运动前端：正向行驶时为车头，反向（往返线返程）时为车尾
+    U.uDir.value = tr.dir ?? 1;
+    U.uRailS.value = (tr.dir ?? 1) > 0 ? tr.s : tr.s - tr.totalLen;
+    U.uTail.value = tr.totalLen;
+    U.uRailMode.value = this.mode === 'classic' ? 0 : 1;
     const moving = tr.speed > 1;
     this.ribbonMat.uniforms.uActive.value += ((moving ? 1 : 0) - this.ribbonMat.uniforms.uActive.value) * (1 - Math.exp(-2 * dt));
     if (this.mode === 'classic' || !moving) return;
     this._mistT = (this._mistT ?? 0) - dt;
     if (this._mistT <= 0 && puffs) {
       this._mistT = 0.12;
-      const sAhead = tr.s + RAIL.uNear.value + Math.random() * 70;
-      const near = this.stations.some((st) => Math.abs(((sAhead - st.s + this.length * 1.5) % this.length) - this.length * 0.5) < 160);
+      const sAhead = U.uRailS.value + (U.uNear.value + Math.random() * 70) * U.uDir.value;
+      const near = (!this.closed && (sAhead < 0 || sAhead > this.length)) || this.stations.some((st) => Math.abs(((sAhead - st.s + this.length * 1.5) % this.length) - this.length * 0.5) < 160);
       if (!near) {
         const f = this.frameAt(sAhead, this._mf || (this._mf = {}));
         puffs.emit(f.pos.clone().addScaledVector(f.right, (Math.random() - 0.5) * 6).add(new THREE.Vector3(0, -6 - Math.random() * 6, 0)),
@@ -238,21 +259,27 @@ export class Railway {
       }
     }
     this._formT = (this._formT ?? 0) - dt;
-    if (this._formT <= 0) { this._formT = 2.2 + Math.random() * 1.5; audio?.sfx('railForm', { vol: 0.8 }); }
+    if (this._formT <= 0) { this._formT = 2.2 + Math.random() * 1.5; if (tr.riding) audio?.sfx('railForm', { vol: 0.8 }); }
   }
 
   /** 与 shader 中 railReveal 相同的计算（用于测试：列车所在轨段必须已完全成形） */
   revealAt(s, shift = 30) {
     if (this.mode === 'classic') return 1;
-    const L = this.length, sm = (x) => Math.min(1, Math.max(0, x));
+    const L = this.length, U = this.U, sm = (x) => Math.min(1, Math.max(0, x));
     const ss = (a, b, x) => { const t = sm((x - a) / (b - a)); return t * t * (3 - 2 * t); };
     const sl = this.segLen;
-    const seg = Math.floor((((s % this.length) + this.length) % this.length) / sl) * sl + sl / 2;
-    const ahead = (((seg - RAIL.uRailS.value) % L) + L * 4) % L, behind = L - ahead;
+    const sw = this.closed ? (((s % L) + L) % L) : s;
+    const seg = Math.floor(sw / sl) * sl + sl / 2;
+    let ahead, behind;
+    if (this.closed) { ahead = (((seg - U.uRailS.value) % L) + L * 4) % L; behind = L - ahead; }
+    else { ahead = (seg - U.uRailS.value) * U.uDir.value; behind = -ahead; if (ahead < 0) ahead = 1e6; if (behind < 0) behind = 1e6; }
     let stn = 0;
-    for (const st of this.stations) { const d = Math.abs((((seg - st.s) % L) + L * 1.5) % L - L * 0.5); stn = Math.max(stn, 1 - ss(120, 160, d)); }
-    const form = 1 - ss(RAIL.uNear.value, RAIL.uFar.value, ahead + shift);
-    const keep = 1 - ss(RAIL.uTail.value + 140, RAIL.uTail.value + 260, behind);
+    for (const st of this.stations) {
+      const d = this.closed ? Math.abs((((seg - st.s) % L) + L * 1.5) % L - L * 0.5) : Math.abs(seg - st.s);
+      stn = Math.max(stn, 1 - ss(120, 160, d));
+    }
+    const form = 1 - ss(U.uNear.value, U.uFar.value, ahead + shift);
+    const keep = 1 - ss(U.uTail.value + 140, U.uTail.value + 260, behind);
     return Math.max(form, keep, stn);
   }
 
