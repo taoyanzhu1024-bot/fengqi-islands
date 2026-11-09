@@ -19,6 +19,7 @@ export const G = {
   hazeColor: { value: new THREE.Color(PALETTE.haze) },
   sunDir: { value: new THREE.Vector3(...WORLD.sunDir).normalize() },
   playerPos: { value: new THREE.Vector3() },
+  lightTint: { value: new THREE.Color(1, 1, 1) }, // 非光照材质（草、瀑布、粒子）的昼夜色调
 };
 
 // 云轨“逐段升起”共享参数（由 Railway.update 每帧写入）

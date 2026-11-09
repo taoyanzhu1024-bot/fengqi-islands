@@ -41,7 +41,7 @@ export function createSky() {
         gl_FragColor = vec4(col, 1.0);
       }`,
   });
-  const sky = new THREE.Mesh(new THREE.SphereGeometry(9000, 48, 24), mat);
+  const sky = new THREE.Mesh(new THREE.SphereGeometry(9000, 64, 32), mat);
   sky.renderOrder = -10;
   sky.frustumCulled = false;
   sky.name = 'sky';

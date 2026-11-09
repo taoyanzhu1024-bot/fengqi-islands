@@ -39,6 +39,7 @@ export const lighthouseTheme = {
     const beamGeo = new THREE.ConeGeometry(7, 90, 20, 1, true);
     beamGeo.translate(0, -45, 0); beamGeo.rotateZ(Math.PI / 2);
     const beam = new THREE.Mesh(beamGeo, new THREE.MeshBasicMaterial({ color: 0xfff1c8, transparent: true, opacity: 0.12, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
+    beam.name = 'lighthouseBeam';
     const pivot = new THREE.Group(); pivot.position.set(LH[0], y0, LH[1]); pivot.add(beam);
     isl.group.add(pivot);
     ctx.anim.push((dt) => (pivot.rotation.y += dt * 0.35));

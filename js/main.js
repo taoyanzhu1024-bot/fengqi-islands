@@ -17,6 +17,7 @@ import { HUD } from './ui/hud.js';
 import { SettingsPanel } from './ui/settings.js';
 import { AudioManager } from './audio/audio.js';
 import { RideController, RIDE } from './systems/ride.js';
+import { DayNight } from './systems/daynight.js';
 
 const showError = (e) => {
   const el = document.getElementById('error');
@@ -80,6 +81,14 @@ async function boot() {
     hud.progress(r.value);
     await new Promise((res) => requestAnimationFrame(res));
   }
+
+  // ---------------- 昼夜 ----------------
+  const dn = new DayNight({ scene, hemi, sun, renderer, sky: world.skyMesh, sea: world.seaMesh, clouds: world.clouds });
+  if (params.has('t')) dn.setPreset(params.get('t'));
+  world.sky = { setTimePreset: (k) => dn.setPreset(k), get night() { return dn.night; } };
+  const beam = scene.getObjectByName('lighthouseBeam');
+  if (beam) dn.lamps.push({ mat: beam.material, day: 0.05, night: 0.32, prop: 'opacity' });
+  world.dn = dn;
 
   // ---------------- 玩家 ----------------
   const player = new Player(physics);
@@ -276,6 +285,11 @@ async function boot() {
     tintAmt.set(damp(tintAmt.x, tn[0], 1.5, dt), damp(tintAmt.y, tn[1], 1.5, dt), damp(tintAmt.z, tn[2], 1.5, dt));
     post.uniforms.uTint.value.setRGB(tintAmt.x, tintAmt.y, tintAmt.z);
 
+    // —— 昼夜 ——
+    dn.update(dt);
+    train.night = dn.night;
+    hud.clock(dn.clock, dn.night > 0.5 ? '夜' : dn.dusk > 0.4 ? (dn.t < 0.5 ? '晨' : '暮') : '昼');
+
     // —— 相机 / 世界 ——
     rig.update(dt, { player, train, ride });
     // 车窗观景为第一人称：隐藏自身角色模型
@@ -299,7 +313,7 @@ async function boot() {
     tmp.copy(focus);
     tmp.x = Math.round(tmp.x / texel) * texel; tmp.z = Math.round(tmp.z / texel) * texel;
     sun.target.position.copy(tmp);
-    sun.position.copy(tmp).addScaledVector(sunDir, 300);
+    sun.position.copy(tmp).addScaledVector(dn.lightDir, 300);
 
     hud.update(dt, player, train, { x: CASTLE.pos[0], z: CASTLE.pos[2] });
     input.endFrame();
@@ -317,7 +331,7 @@ async function boot() {
   requestAnimationFrame(frame);
 
   window.__game = {
-    world, player, train, rig, ride, audio, renderer, scene, camera, input, RIDE, ready: true,
+    world, player, train, rig, ride, audio, dn, renderer, scene, camera, input, RIDE, ready: true,
     // 测试接口：无渲染快进模拟；keys 为每步都按下的键
     simulate(sec, dt = 1 / 30) { const n = Math.round(sec / dt); for (let i = 0; i < n; i++) update(dt); },
     press(code) { input.tap(code); update(1 / 30); },

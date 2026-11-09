@@ -42,8 +42,8 @@ export class World {
   /** 分步构建（每步之间让出一帧以刷新加载进度） */
   *build() {
     const { scene, physics } = this;
-    scene.add(createSky());
-    scene.add(createCloudSea());
+    this.skyMesh = createSky(); this.seaMesh = createCloudSea();
+    scene.add(this.skyMesh, this.seaMesh);
     this.clouds = new CloudField();
     yield 0.05;
 

@@ -18,6 +18,11 @@ export class HUD {
     this.ctx = this.el.map.getContext('2d');
   }
 
+  clock(text, phase) {
+    if (text === this._clk) return;
+    this._clk = text;
+    (this._clkEl ||= document.getElementById('clock')).textContent = `${phase} · ${text}`;
+  }
   progress(p) { this.el.bar.style.width = `${Math.round(p * 100)}%`; }
   ready() { this.el.loading.classList.add('done'); setTimeout(() => this.el.loading.remove(), 1600); this.buildMapBase(); }
 
