@@ -123,7 +123,11 @@ export function tours(world) {
   const C = world.castle.position;
   const I = world.byId;
   const c = (id, dy = 0) => I[id].center.clone().add(v(0, dy, 0));
-  const shotCastle = { from: [v(-30, 14, -95), v(-60, 40, -230)], look: [C.clone().add(v(0, 120, 0)), C.clone().add(v(0, 150, 0))], dur: 8, title: '天空之城 · 艾瑟兰', sub: '传说中，群岛所有的风都从那里出发', fov: 40 };
+  // 天空之城现为真实岛屿（地面约 y=200），镜头对准城区与王庭尖塔
+  const shotCastle = { from: [v(-30, 14, -95), v(-60, 40, -230)], look: [C.clone().add(v(0, 30, 0)), C.clone().add(v(0, 45, 0))], dur: 8, title: '天空之城 · 艾瑟兰', sub: '传说中，群岛所有的风都从那里出发', fov: 40 };
+  const shotCity = { from: [C.clone().add(v(320, 120, 420)), C.clone().add(v(180, 70, 330))], look: [C.clone().add(v(0, 20, -40)), C.clone().add(v(0, 25, -90))], dur: 8, title: '艾瑟兰', sub: '广场、钟楼、空中花园与王庭 · 乘天空支线或飞艇「风帆号」抵达', fov: 45 };
+  const ap = world.airway?.stations[0].pos ?? c('port');
+  const shotAir = { from: [ap.clone().add(v(-70, 25, -60)), ap.clone().add(v(-45, 12, 20))], look: [ap.clone().add(v(0, 6, 0)), ap.clone().add(v(0, 6, 0))], dur: 6, title: '风帆号', sub: '往返云港岛与天空之城的飞艇', fov: 45 };
   const shotSea = { from: [v(260, -250, -120), v(620, -235, 120)], look: [v(900, -300, 500), v(1300, -280, 700)], dur: 7, title: '云海', sub: '岛屿之下，是望不到边的柔软云层', fov: 55 };
   const shotLoop = { from: [v(120, 1350, 1150), v(160, 1250, 700)], look: [v(130, 0, 230), v(130, 0, 200)], dur: 8, title: '云轨环线', sub: `六座车站 · 全长约 ${(world.rail.length / 1000).toFixed(1)} 公里`, fov: 50 };
   const shotFlower = { from: [c('flower', 90).add(v(-220, 0, -160)), c('flower', 60).add(v(-150, 0, 40))], look: [c('flower', 10), c('flower', 5)], dur: 7, title: '花海岛', sub: '风把花香吹成了海', fov: 50 };
@@ -140,11 +144,11 @@ export function tours(world) {
     ],
     main: [shotCastle, shotSea, shotLoop, shotFlower, shotLight],
     lighthouse: [
-      { from: [lp.clone().add(v(0, 4, 0)), lp.clone().add(v(-40, 30, -60))], look: [C.clone().add(v(0, 100, 0)), C.clone().add(v(0, 130, 0))], dur: 8, title: '远方 · 天空之城', sub: '灯塔的光，是为迟归的风而亮', fov: 38 },
+      { from: [lp.clone().add(v(0, 4, 0)), lp.clone().add(v(-40, 30, -60))], look: [C.clone().add(v(0, 30, 0)), C.clone().add(v(0, 50, 0))], dur: 8, title: '远方 · 天空之城', sub: '灯塔的光，是为迟归的风而亮', fov: 38 },
       { from: [lp.clone().add(v(30, -20, 60)), lp.clone().add(v(160, -120, 200))], look: [v(-800, -330, 1600), v(-900, -330, 1700)], dur: 7, title: '云海尽头', sub: '再往前，就是没有人去过的天空', fov: 55 },
       shotSnow,
     ],
-    world: [shotMain, shotCastle, shotFlower, shotPort, shotForest, shotLight, shotSnow, shotSea, shotLoop],
+    world: [shotMain, shotCastle, shotCity, shotFlower, shotPort, shotAir, shotForest, shotLight, shotSnow, shotSea, shotLoop],
   };
 }
 export { lerp };
