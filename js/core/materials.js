@@ -21,6 +21,31 @@ export const G = {
   playerPos: { value: new THREE.Vector3() },
 };
 
+// 云轨“逐段升起”共享参数（由 Railway.update 每帧写入）
+export const RAIL = {
+  uRailS: { value: 0 }, uRailL: { value: 1 }, uRailMode: { value: 1 }, uTail: { value: 50 },
+  uNear: { value: 55 }, uFar: { value: 190 }, uSt: { value: new Array(8).fill(-1e6) },
+};
+const RAIL_GLSL = /* glsl */ `
+uniform float uRailS, uRailL, uRailMode, uTail, uNear, uFar; uniform float uSt[8];
+attribute float aS;
+varying float vGlow;
+float railReveal(float s, float shift, out float glow){
+  float L = uRailL;
+  float ahead = mod(s - uRailS + L*4.0, L);
+  float behind = L - ahead;
+  float stn = 0.0;
+  for (int i = 0; i < 8; i++) { float d = abs(mod(s - uSt[i] + L*1.5, L) - L*0.5); stn = max(stn, 1.0 - smoothstep(120.0, 160.0, d)); }
+  float form = 1.0 - smoothstep(uNear, uFar, ahead + shift);
+  float keep = 1.0 - smoothstep(uTail + 140.0, uTail + 260.0, behind);
+  float r = clamp(max(max(form, keep), stn), 0.0, 1.0);
+  // 尾迹金光 + 成形过程中的光芒
+  glow = (1.0 - smoothstep(uTail * 0.5, uTail + 200.0, behind)) * (1.0 - stn) * 0.45 * step(behind, L * 0.5);
+  glow += (1.0 - abs(r * 2.0 - 1.0)) * 0.9 * (1.0 - stn);
+  if (uRailMode < 0.5) { r = 1.0; glow = 0.0; }
+  return r;
+}`;
+
 const GLSL_NOISE = /* glsl */ `
 float wcHash(vec3 p){ p = fract(p*0.3183099 + 0.1); p *= 17.0; return fract(p.x*p.y*p.z*(p.x+p.y+p.z)); }
 float wcNoise(vec3 x){
@@ -50,13 +75,25 @@ export function wc(o = {}) {
     fog: o.fog ?? true,
   });
   const sway = o.sway ?? 0, haze = o.haze ?? 0, grain = o.grain ?? 1;
+  const rail = o.rail !== undefined, shift = (o.rail ?? 0).toFixed(1), inst = !!o.inst;
   m.onBeforeCompile = (sh) => {
     sh.uniforms.uTime = G.time;
     sh.uniforms.uHazeColor = G.hazeColor;
+    if (rail) Object.assign(sh.uniforms, RAIL);
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', `#include <common>
-        uniform float uTime; varying vec3 vWPos;`)
+        uniform float uTime; varying vec3 vWPos;
+        ${rail ? RAIL_GLSL + (inst ? '' : '\nattribute vec3 aC;') : ''}`)
       .replace('#include <begin_vertex>', `#include <begin_vertex>
+        ${rail ? `{
+          float glow;
+          float segS = floor(aS / 6.0) * 6.0 + 3.0;   // 以 6 米为一段整体升起
+          float r = railReveal(segS, ${shift}, glow);
+          float drop = (1.0 - r) * (1.0 - r) * 42.0;
+          ${inst ? `transformed *= max(r, 0.0001); transformed.y -= drop;`
+                 : `transformed = aC + (transformed - aC) * max(r, 0.0001) - vec3(0.0, drop, 0.0);`}
+          vGlow = glow;
+        }` : ''}
         ${sway > 0 ? `{
           vec4 wp0 = vec4(transformed, 1.0);
           #ifdef USE_INSTANCING
@@ -77,6 +114,7 @@ export function wc(o = {}) {
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', `#include <common>
         uniform float uTime; uniform vec3 uHazeColor; varying vec3 vWPos;
+        ${rail ? 'varying float vGlow;' : ''}
         ${GLSL_NOISE}`)
       .replace('#include <fog_fragment>', `{
           vec3 col = gl_FragColor.rgb;
@@ -92,11 +130,12 @@ export function wc(o = {}) {
           // 受光面偏暖
           col *= mix(vec3(1.0), vec3(1.05,1.0,0.92), smoothstep(0.9, 1.5, lit));
           ${haze > 0 ? `col = mix(col, uHazeColor, ${haze.toFixed(3)});` : ''}
+          ${rail ? 'col += vec3(0.62, 0.46, 0.16) * vGlow;' : ''}
           gl_FragColor.rgb = col;
         }
         #include <fog_fragment>`);
   };
-  m.customProgramCacheKey = () => `wc|${sway}|${haze}|${grain}`;
+  m.customProgramCacheKey = () => `wc|${sway}|${haze}|${grain}|${rail ? shift : 'x'}|${inst}`;
   cache.set(key, m);
   return m;
 }

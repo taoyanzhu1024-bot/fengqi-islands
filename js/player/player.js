@@ -45,7 +45,7 @@ export class Player {
    * @param camYaw 相机偏航（决定移动方向）
    */
   update(dt, input, camYaw, events) {
-    if (this.state === 'train' || this.state === 'locked') { this.char.animate(dt, { speed: 0, grounded: true, onTrain: this.state === 'train' }); this.sync(); return; }
+    if (this.state === 'train' || this.state === 'locked') { this.char.animate(dt, { speed: 0, grounded: true, onTrain: this.state === 'train', sitting: this.state === 'train' && this.sitting }); this.sync(); return; }
     const ph = this.physics;
     const f = input.isDown('KeyW', 'ArrowUp') - input.isDown('KeyS', 'ArrowDown');
     const s = input.isDown('KeyD', 'ArrowRight') - input.isDown('KeyA', 'ArrowLeft');

@@ -207,7 +207,9 @@ async function boot() {
     train.update(dt, world.puffs);
     let promptHtml = ride.update(dt, input) ?? '';
     if (ride.onTrain && rig.mode === 'train') {
-      if (input.take('KeyT')) { rig.nextTrainView?.(); hud.toast(rig.trainViewName?.() ?? '', 1.6); }
+      if (input.take('KeyT')) { rig.nextTrainView(); hud.toast(rig.trainViewName(), 1.6); }
+      if (input.take('KeyC')) rig.nextSeat();
+      if (input.take('Escape') && rig.trainViewId !== 'window') { rig.setTrainView(0); hud.toast(rig.trainViewName(), 1.6); }
       for (let i = 0; i < stations.length; i++) if (input.take('Digit' + (i + 1))) train.setDestination(i);
     }
 
@@ -256,7 +258,7 @@ async function boot() {
         ? `停靠 ${train.station.name} · ${Math.ceil(train.dwell)} 秒后发车`
         : `下一站 ${train.nextStation.name} · ${dist} m · ${Math.round(train.speed * 3.6)} km/h`;
       hud.trainInfo(`<div class="t-title">风栖号 · ${head}</div><div class="stops">${stops}</div>
-        <div class="t-keys">${train.state === 'dwell' ? 'E 下车 · 空格 立即发车 · ' : 'E 在下一站停靠 · '}1-6 选择目的站 · T 切换视角（${rig.trainViewName?.() ?? ''}）· 拖动环顾</div>`);
+        <div class="t-keys">${train.state === 'dwell' ? 'E 下车 · 空格 立即发车 · ' : 'E 在下一站停靠 · '}1-6 选择目的站 · T 切换视角（${rig.trainViewName()}）${rig.trainViewId === 'cabin' ? ' · C 换座位' : ''} · 拖动环顾${['follow', 'panorama'].includes(rig.trainViewId) ? ' · 滚轮缩放' : ''}</div>`);
     } else hud.trainInfo('');
 
     // —— 区域 ——
@@ -276,8 +278,10 @@ async function boot() {
 
     // —— 相机 / 世界 ——
     rig.update(dt, { player, train, ride });
+    // 车窗观景为第一人称：隐藏自身角色模型
+    player.object.visible = !(rig.mode === 'train' && rig.trainViewId === 'window');
     G.playerPos.value.copy(player.pos);
-    world.update(dt, t, camera, { train, player });
+    world.update(dt, t, camera, { train, player, audio });
 
     // —— 音频 ——
     let wf = 0;

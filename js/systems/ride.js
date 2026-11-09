@@ -28,6 +28,7 @@ export class RideController {
     this.to = new THREE.Vector3();
     this.log = [];          // 测试用：状态变迁记录
     this.seat = new THREE.Vector3();
+    this.door = new THREE.Vector3();
   }
 
   get onTrain() { return this.state !== RIDE.ON_FOOT; }
@@ -94,10 +95,12 @@ export class RideController {
 
     switch (this.state) {
       case RIDE.BOARDING: {
-        // 从站台走向座位
+        // 站台 → 车门 → 座位
         tr.seatPosition(this.seat);
-        const k = easeInOut(Math.min(this.t / BOARD_TIME, 1));
-        p.pos.lerpVectors(this.from, this.seat, k);
+        tr.doorPosition(this.door);
+        const k = Math.min(this.t / BOARD_TIME, 1);
+        if (k < 0.5) p.pos.lerpVectors(this.from, this.door, easeInOut(k * 2));
+        else p.pos.lerpVectors(this.door, this.seat, easeInOut(k * 2 - 1));
         p.heading = tr.heading;
         if (this.t >= BOARD_TIME) { this.set(RIDE.RIDING); tr.openDoors(false); }
         break;
@@ -125,12 +128,16 @@ export class RideController {
         break;
       }
       case RIDE.DISEMBARKING: {
-        const k = easeInOut(Math.min(this.t / ALIGHT_TIME, 1));
-        p.pos.lerpVectors(this.from, this.to, k);
+        // 座位 → 车门 → 站台安全锚点
+        tr.doorPosition(this.door);
+        const k = Math.min(this.t / ALIGHT_TIME, 1);
+        if (k < 0.5) p.pos.lerpVectors(this.from, this.door, easeInOut(k * 2));
+        else p.pos.lerpVectors(this.door, this.to, easeInOut(k * 2 - 1));
         if (this.t >= ALIGHT_TIME) this.finishAlight();
         break;
       }
     }
+    p.sitting = this.state === RIDE.RIDING || this.state === RIDE.ARRIVING;
     if (this.onTrain) p.sync();
     return prompt;
   }

@@ -3,10 +3,12 @@
 // ============================================================
 import * as THREE from 'three';
 import { Batcher, GEO, M, T } from '../core/batcher.js';
-import { wc, MATS, textTexture } from '../core/materials.js';
+import { wc, MATS, textTexture, RAIL, G } from '../core/materials.js';
 import { BoxSurface } from '../core/physics.js';
 import { PALETTE as P } from '../config.js';
 import { lamp, bench, house } from './props.js';
+import { Train } from './train.js';
+export { Train };
 
 const UP = new THREE.Vector3(0, 1, 0);
 const STRAIGHT = 70;   // 站台直线段半长
@@ -16,6 +18,7 @@ export class Railway {
   /** 第一步：根据岛屿规划车站（必须在岛屿网格生成前调用，以便平整站台地形） */
   constructor(route) {
     this.route = route;
+    this.mode = localStorage.getItem('fengqi.railMode') === 'classic' ? 'classic' : 'cloud';
     this.stations = [];
     const N = route.length;
     const cen = new THREE.Vector3();
@@ -95,72 +98,155 @@ export class Railway {
   buildTrack(scene) {
     const step = 2;
     const F = Math.floor(this.length / step);
+    const ds = this.length / F;
     const frames = [];
-    for (let i = 0; i < F; i++) frames.push(this.frameAt(i * step * (this.length / (F * step)), {}));
+    for (let i = 0; i < F; i++) frames.push(this.frameAt(i * ds, {}));
     this.samples = frames.map((f) => f.pos.clone());
 
-    // 沿曲线扫掠矩形截面
-    const sweep = (profile, color) => {
-      const P2 = profile.length, pos = [], idx = [];
-      for (const f of frames) for (const [x, y] of profile) {
-        pos.push(f.pos.x + f.right.x * x + f.up.x * y, f.pos.y + f.right.y * x + f.up.y * y, f.pos.z + f.right.z * x + f.up.z * y);
-      }
+    // 沿曲线扫掠截面；每个顶点记录弧长 aS 与所在截面中心 aC（供“逐段升起”shader 使用）
+    const sweepGeo = (profile, closed = true) => {
+      const P2 = profile.length, pos = [], sArr = [], cArr = [], idx = [];
+      frames.forEach((f, i) => {
+        for (const [x, y] of profile) {
+          pos.push(f.pos.x + f.right.x * x + f.up.x * y, f.pos.y + f.right.y * x + f.up.y * y, f.pos.z + f.right.z * x + f.up.z * y);
+          sArr.push(i * ds); cArr.push(f.pos.x, f.pos.y, f.pos.z);
+        }
+      });
+      const J = closed ? P2 : P2 - 1;
       for (let i = 0; i < F; i++) {
         const ni = (i + 1) % F;
-        for (let j = 0; j < P2; j++) {
+        for (let j = 0; j < J; j++) {
           const a = i * P2 + j, b = i * P2 + ((j + 1) % P2), c = ni * P2 + j, d = ni * P2 + ((j + 1) % P2);
           idx.push(a, c, b, b, c, d);
         }
       }
       const g = new THREE.BufferGeometry();
       g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      g.setAttribute('aS', new THREE.Float32BufferAttribute(sArr, 1));
+      g.setAttribute('aC', new THREE.Float32BufferAttribute(cArr, 3));
       g.setIndex(idx);
       g.computeVertexNormals();
-      const m = new THREE.Mesh(g, wc({ color, flat: true, side: THREE.DoubleSide, grain: 0.6 }));
-      m.castShadow = true; m.receiveShadow = true;
+      g.boundingSphere = null;
+      return g;
+    };
+    // shift：越大越晚成形 → 先支架、再枕木、最后轨条
+    const sweep = (profile, color, shift) => {
+      const m = new THREE.Mesh(sweepGeo(profile), wc({ color, flat: true, side: THREE.DoubleSide, grain: 0.6, rail: shift }));
+      m.castShadow = false; m.receiveShadow = true; m.frustumCulled = false;
       return m;
     };
     const rect = (x0, y0, x1, y1) => [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
     const grp = new THREE.Group(); grp.name = 'track';
-    grp.add(sweep(rect(-0.82, -0.16, -0.66, 0), P.gold));
-    grp.add(sweep(rect(0.66, -0.16, 0.82, 0), P.gold));
-    grp.add(sweep([[-0.5, -0.42], [0.5, -0.42], [0.32, -0.9], [-0.32, -0.9]], P.cream));
-    grp.add(sweep(rect(-0.12, -1.05, 0.12, -0.88), P.goldLight));
+    grp.add(sweep(rect(-0.82, -0.16, -0.66, 0), P.gold, 30));
+    grp.add(sweep(rect(0.66, -0.16, 0.82, 0), P.gold, 30));
+    grp.add(sweep([[-0.5, -0.42], [0.5, -0.42], [0.32, -0.9], [-0.32, -0.9]], P.cream, 0));
+    grp.add(sweep(rect(-0.12, -1.05, 0.12, -0.88), P.goldLight, 0));
 
-    // 枕木 + 装饰托架 + 灯笼（实例化）
+    // 枕木 + 装饰托架（实例化，逐实例记录弧长）；悬浮风灯始终可见，作为航线标记
     const dummy = new THREE.Object3D();
-    const sleeperN = Math.floor(this.length / 1.6);
-    const sleepers = new THREE.InstancedMesh(new THREE.BoxGeometry(2.3, 0.14, 0.34), wc({ color: 0xc9a27e, flat: true }), sleeperN);
     const fr = {};
-    for (let i = 0; i < sleeperN; i++) {
-      this.frameAt(i * 1.6, fr);
-      dummy.position.copy(fr.pos).addScaledVector(fr.up, -0.25);
-      dummy.lookAt(dummy.position.clone().add(fr.tan));
-      dummy.updateMatrix();
-      sleepers.setMatrixAt(i, dummy.matrix);
-    }
+    const instanced = (geo, mat, n, spacing, place) => {
+      const im = new THREE.InstancedMesh(geo, mat, n);
+      const sAttr = new Float32Array(n);
+      for (let i = 0; i < n; i++) {
+        this.frameAt(i * spacing, fr);
+        place(fr);
+        dummy.lookAt(dummy.position.clone().add(fr.tan));
+        dummy.updateMatrix();
+        im.setMatrixAt(i, dummy.matrix);
+        sAttr[i] = i * spacing;
+      }
+      geo.setAttribute('aS', new THREE.InstancedBufferAttribute(sAttr, 1));
+      im.frustumCulled = false;
+      return im;
+    };
+    const sleeperN = Math.floor(this.length / 1.6);
+    const sleepers = instanced(new THREE.BoxGeometry(2.3, 0.14, 0.34), wc({ color: 0xc9a27e, flat: true, rail: 15, inst: true }), sleeperN, 1.6,
+      (f) => dummy.position.copy(f.pos).addScaledVector(f.up, -0.25));
     sleepers.receiveShadow = true;
-    grp.add(sleepers);
-
     const arcN = Math.floor(this.length / 14);
     const arcGeo = new THREE.TorusGeometry(1.0, 0.07, 5, 16, Math.PI);
     arcGeo.rotateZ(Math.PI);
-    const arcs = new THREE.InstancedMesh(arcGeo, wc({ color: P.gold, grain: 0.4 }), arcN);
+    const arcs = instanced(arcGeo, wc({ color: P.gold, grain: 0.4, rail: 0, inst: true }), arcN, 14,
+      (f) => dummy.position.copy(f.pos).addScaledVector(f.up, -0.45));
     const lanterns = new THREE.InstancedMesh(new THREE.OctahedronGeometry(0.28, 0), new THREE.MeshBasicMaterial({ color: P.glowWarm }), arcN);
     for (let i = 0; i < arcN; i++) {
       this.frameAt(i * 14, fr);
-      dummy.position.copy(fr.pos).addScaledVector(fr.up, -0.45);
-      dummy.lookAt(dummy.position.clone().add(fr.tan));
-      dummy.updateMatrix();
-      arcs.setMatrixAt(i, dummy.matrix);
       dummy.position.copy(fr.pos).addScaledVector(fr.up, -1.6);
       dummy.updateMatrix();
       lanterns.setMatrixAt(i, dummy.matrix);
     }
-    grp.add(arcs, lanterns);
+    grp.add(sleepers, arcs, lanterns);
+
+    // 风之光带：列车前方淡金/青绿色的能量轨迹（加色混合，仅云轨模式）
+    const ribbonGeo = sweepGeo([[-1.3, 0.35], [1.3, 0.35]], false);
+    const side = new Float32Array(ribbonGeo.attributes.position.count);
+    for (let i = 0; i < side.length; i++) side[i] = i % 2;
+    ribbonGeo.setAttribute('aSide', new THREE.BufferAttribute(side, 1));
+    this.ribbonMat = new THREE.ShaderMaterial({
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+      uniforms: { ...RAIL, uTime: G.time, uActive: { value: 0 } },
+      vertexShader: `attribute float aS; attribute float aSide; uniform float uRailS, uRailL; varying float vAhead; varying float vSide; varying float vS;
+        void main(){ vAhead = mod(aS - uRailS + uRailL*4.0, uRailL); vSide = aSide; vS = aS; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+      fragmentShader: `uniform float uTime, uActive, uRailMode, uNear, uFar; varying float vAhead; varying float vSide; varying float vS;
+        void main(){
+          float band = smoothstep(uNear * 0.4, uNear, vAhead) * (1.0 - smoothstep(uFar * 0.8, uFar * 1.35, vAhead));
+          float edge = 1.0 - abs(vSide * 2.0 - 1.0);
+          float flow = 0.55 + 0.45 * sin(vS * 0.35 - uTime * 9.0);
+          vec3 col = mix(vec3(0.95, 0.82, 0.45), vec3(0.55, 0.95, 0.85), 0.5 + 0.5 * sin(vS * 0.05 + uTime));
+          float a = band * pow(edge, 1.5) * flow * uActive * uRailMode * 0.55;
+          if (a < 0.01) discard;
+          gl_FragColor = vec4(col * a, a);
+        }`,
+    });
+    const ribbon = new THREE.Mesh(ribbonGeo, this.ribbonMat);
+    ribbon.frustumCulled = false; ribbon.renderOrder = 9;
+    grp.add(ribbon);
     scene.add(grp);
     this.trackGroup = grp;
+    RAIL.uRailL.value = this.length;
+    for (let i = 0; i < 8; i++) RAIL.uSt.value[i] = this.stations[i % this.stations.length].s; // 空槽重复填充，避免误判
   }
+
+  /** 每帧：同步云轨升起参数，并在成形区域喷出少量云雾 */
+  update(dt, puffs, audio) {
+    const tr = this.train;
+    RAIL.uRailS.value = tr.s;
+    RAIL.uTail.value = tr.totalLen;
+    RAIL.uRailMode.value = this.mode === 'classic' ? 0 : 1;
+    const moving = tr.speed > 1;
+    this.ribbonMat.uniforms.uActive.value += ((moving ? 1 : 0) - this.ribbonMat.uniforms.uActive.value) * (1 - Math.exp(-2 * dt));
+    if (this.mode === 'classic' || !moving) return;
+    this._mistT = (this._mistT ?? 0) - dt;
+    if (this._mistT <= 0 && puffs) {
+      this._mistT = 0.12;
+      const sAhead = tr.s + RAIL.uNear.value + Math.random() * 70;
+      const near = this.stations.some((st) => Math.abs(((sAhead - st.s + this.length * 1.5) % this.length) - this.length * 0.5) < 160);
+      if (!near) {
+        const f = this.frameAt(sAhead, this._mf || (this._mf = {}));
+        puffs.emit(f.pos.clone().addScaledVector(f.right, (Math.random() - 0.5) * 6).add(new THREE.Vector3(0, -6 - Math.random() * 6, 0)),
+          new THREE.Vector3((Math.random() - 0.5) * 1.5, 4 + Math.random() * 3, (Math.random() - 0.5) * 1.5), 2.2, 2.6);
+      }
+    }
+    this._formT = (this._formT ?? 0) - dt;
+    if (this._formT <= 0) { this._formT = 2.2 + Math.random() * 1.5; audio?.sfx('railForm', { vol: 0.8 }); }
+  }
+
+  /** 与 shader 中 railReveal 相同的计算（用于测试：列车所在轨段必须已完全成形） */
+  revealAt(s, shift = 30) {
+    if (this.mode === 'classic') return 1;
+    const L = this.length, sm = (x) => Math.min(1, Math.max(0, x));
+    const ss = (a, b, x) => { const t = sm((x - a) / (b - a)); return t * t * (3 - 2 * t); };
+    const seg = Math.floor(s / 6) * 6 + 3;
+    const ahead = (((seg - RAIL.uRailS.value) % L) + L * 4) % L, behind = L - ahead;
+    let stn = 0;
+    for (const st of this.stations) { const d = Math.abs((((seg - st.s) % L) + L * 1.5) % L - L * 0.5); stn = Math.max(stn, 1 - ss(120, 160, d)); }
+    const form = 1 - ss(RAIL.uNear.value, RAIL.uFar.value, ahead + shift);
+    const keep = 1 - ss(RAIL.uTail.value + 140, RAIL.uTail.value + 260, behind);
+    return Math.max(form, keep, stn);
+  }
+
+  setMode(m) { this.mode = m === 'classic' ? 'classic' : 'cloud'; localStorage.setItem('fengqi.railMode', this.mode); }
 
   buildStation(st, scene, physics, interact) {
     const isl = st.island;
@@ -232,247 +318,3 @@ export class Railway {
   }
 }
 
-// ============================================================
-// 列车：车头（铜金锅炉 + 鼠尾草绿驾驶室）+ 两节客车 + 观景车
-// 状态：idle（停站等待）→ arriving（被呼叫进站）→ dwell（停靠）→ running（运行）
-// ============================================================
-const CAR_LEN = [9.5, 8.6, 8.6, 8.0];
-const GAP = 0.9;
-
-function buildLoco() {
-  const b = new Batcher(); const I = new THREE.Matrix4();
-  b.add('solid', GEO.box, P.sageDeep, T(I, 0, 0.75, 0, 0, 0, 0, 2.3, 0.5, 9.2));
-  b.add('solid', GEO.box, P.gold, T(I, 0, 1.0, 0, 0, 0, 0, 2.4, 0.08, 9.3));
-  b.add('solid', GEO.cyl16, P.copper, T(I, 0, 2.0, 1.4, Math.PI / 2, 0, 0, 1.05, 5.6, 1.05));
-  for (const z of [-0.6, 1.4, 3.4]) b.add('solid', GEO.cyl16, P.gold, T(I, 0, 2.0, z, Math.PI / 2, 0, 0, 1.1, 0.16, 1.1));
-  b.add('solid', GEO.cyl16, P.sageDark, T(I, 0, 2.0, 4.25, Math.PI / 2, 0, 0, 1.0, 0.15, 1.0));
-  b.add('solid', GEO.sphereLo, P.gold, T(I, 0, 2.0, 4.35, 0, 0, 0, 0.35, 0.35, 0.15));
-  b.add('solid', GEO.taper8, P.copper, T(I, 0, 3.6, 3.2, Math.PI, 0, 0, 0.42, 1.6, 0.42));
-  b.add('solid', GEO.cyl8, P.gold, T(I, 0, 4.45, 3.2, 0, 0, 0, 0.62, 0.22, 0.62));
-  b.add('solid', GEO.dome, P.gold, T(I, 0, 3.0, 1.0, 0, 0, 0, 0.42, 0.5, 0.42));
-  // 驾驶室
-  b.add('solid', GEO.box, P.sage, T(I, 0, 2.4, -2.6, 0, 0, 0, 2.4, 2.8, 3.0));
-  b.add('solid', GEO.box, P.cream, T(I, 0, 3.95, -2.6, 0, 0, 0, 2.8, 0.25, 3.5));
-  b.add('solid', GEO.box, P.gold, T(I, 0, 1.4, -2.6, 0, 0, 0, 2.45, 0.1, 3.05));
-  for (const x of [-1.22, 1.22]) b.add('glow', GEO.box, 0xf3d9a6, T(I, x, 2.9, -2.6, 0, 0, 0, 0.05, 0.9, 1.6));
-  // 前灯与排障器
-  b.add('glow', GEO.cyl12, 0xfff2c8, T(I, 0, 2.9, 4.1, Math.PI / 2, 0, 0, 0.3, 0.3, 0.3));
-  b.add('solid', GEO.cone4, P.gold, T(I, 0, 0.55, 4.7, -Math.PI / 2, Math.PI / 4, 0, 1.0, 0.8, 0.5));
-  // 小金翅膀（天空列车的标志）
-  for (const s of [-1, 1]) {
-    for (let k = 0; k < 3; k++)
-      b.add('flat', GEO.box, k ? P.goldLight : P.gold, T(I, s * (1.3 + k * 0.35), 2.3 + k * 0.12, 1.8 - k * 0.5, 0.2, 0, s * (0.35 + k * 0.1), 0.9, 0.08, 1.6 - k * 0.35));
-  }
-  const g = new THREE.Group(); b.build().forEach((m) => g.add(m));
-  return { g, chimney: new THREE.Vector3(0, 4.6, 3.2) };
-}
-
-function buildCar(open = false) {
-  const b = new Batcher(); const I = new THREE.Matrix4();
-  const L = open ? 7.6 : 8.2;
-  b.add('solid', GEO.box, P.sageDeep, T(I, 0, 0.75, 0, 0, 0, 0, 2.3, 0.5, L));
-  b.add('solid', GEO.box, P.gold, T(I, 0, 1.0, 0, 0, 0, 0, 2.45, 0.1, L + 0.1));
-  if (!open) {
-    b.add('solid', GEO.box, P.sage, T(I, 0, 1.55, 0, 0, 0, 0, 2.5, 1.0, L));
-    b.add('solid', GEO.box, P.cream, T(I, 0, 2.6, 0, 0, 0, 0, 2.5, 1.2, L));
-    b.add('solid', GEO.box, P.gold, T(I, 0, 2.05, 0, 0, 0, 0, 2.55, 0.08, L + 0.02));
-    for (let z = -L / 2 + 1.2; z < L / 2 - 0.6; z += 1.5)
-      for (const x of [-1.26, 1.26]) b.add('glow', GEO.box, 0xf3d9a6, T(I, x, 2.6, z + 0.3, 0, 0, 0, 0.04, 0.75, 1.0));
-    b.add('solid', GEO.cyl16, P.sageDark, T(I, 0, 3.15, 0, Math.PI / 2, 0, 0, 1.35, L + 0.3, 0.45).multiply(M(0, 0, 0)));
-    b.add('solid', GEO.box, P.cream, T(I, 0, 3.25, 0, 0, 0, 0, 2.7, 0.08, L + 0.4));
-    for (const z of [-L / 2 + 0.6, L / 2 - 0.6]) b.add('glow', GEO.sphereLo, P.glowWarm, T(I, 1.4, 2.95, z, 0, 0, 0, 0.18));
-  } else {
-    // 观景车：开放甲板 + 围栏 + 花箱 + 小顶棚
-    b.add('solid', GEO.box, P.wood, T(I, 0, 1.08, 0, 0, 0, 0, 2.4, 0.08, L));
-    for (const x of [-1.15, 1.15]) {
-      b.add('solid', GEO.box, P.gold, T(I, x, 2.0, 0, 0, 0, 0, 0.08, 0.08, L));
-      for (let z = -L / 2 + 0.3; z <= L / 2; z += 0.9) b.add('solid', GEO.cyl6, P.gold, T(I, x, 1.55, z, 0, 0, 0, 0.03, 0.9, 0.03));
-      b.add('solid', GEO.box, P.sageDark, T(I, x, 1.3, 0, 0, 0, 0, 0.3, 0.4, L * 0.5));
-      b.add('swaySoft', GEO.sphereLo, P.pink, T(I, x, 1.55, 0, 0, 0, 0, 0.25, 0.2, L * 0.24));
-    }
-    b.add('solid', GEO.box, P.gold, T(I, 0, 2.0, -L / 2, 0, 0, 0, 2.3, 0.08, 0.08));
-    for (const x of [-1.1, 1.1]) for (const z of [L / 2 - 0.3, L / 2 - 3.0])
-      b.add('solid', GEO.cyl8, P.gold, T(I, x, 2.4, z, 0, 0, 0, 0.07, 2.6, 0.07));
-    b.add('solid', GEO.box, P.coralSoft, T(I, 0, 3.75, L / 2 - 1.65, 0, 0, 0, 2.7, 0.15, 3.4));
-    b.add('solid', GEO.box, P.cream, T(I, 0, 3.62, L / 2 - 1.65, 0, 0, 0, 2.8, 0.08, 3.5));
-    b.add('glow', GEO.sphereLo, P.glowWarm, T(I, 0, 3.4, L / 2 - 1.65, 0, 0, 0, 0.22));
-  }
-  const g = new THREE.Group(); b.build().forEach((m) => g.add(m));
-  return g;
-}
-
-function wheelSet(group, L) {
-  const wheels = [];
-  const geo = new THREE.CylinderGeometry(0.42, 0.42, 0.16, 14); geo.rotateZ(Math.PI / 2);
-  const mat = wc({ color: P.sageDeep }), hub = wc({ color: P.gold });
-  const hubGeo = new THREE.CylinderGeometry(0.16, 0.16, 0.2, 8); hubGeo.rotateZ(Math.PI / 2);
-  for (const z of [L / 2 - 1.3, L / 2 - 2.3, -L / 2 + 1.3, -L / 2 + 2.3])
-    for (const x of [-0.75, 0.75]) {
-      const w = new THREE.Mesh(geo, mat); w.position.set(x, 0.42, z);
-      const h = new THREE.Mesh(hubGeo, hub); h.position.x = x > 0 ? 0.04 : -0.04;
-      w.add(h); group.add(w); wheels.push(w);
-    }
-  return wheels;
-}
-
-export class Train {
-  constructor(rail) {
-    this.rail = rail;
-    this.group = new THREE.Group(); this.group.name = 'train';
-    this.cars = [];
-    const loco = buildLoco();
-    this.chimneyLocal = loco.chimney;
-    this.cars.push(loco.g);
-    this.cars.push(buildCar(false), buildCar(false), buildCar(true));
-    this.wheels = [];
-    this.cars.forEach((c, i) => { this.wheels.push(...wheelSet(c, CAR_LEN[i] - 0.4)); this.group.add(c); });
-    this.offsets = [];
-    let off = 0;
-    CAR_LEN.forEach((l) => { this.offsets.push(off + l / 2); off += l + GAP; });
-    this.totalLen = off;
-
-    this.stationIdx = 0;
-    this.s = this.stopS(0);
-    this.speed = 0;
-    this.state = 'idle';
-    this.riding = false;
-    this.dwell = 0;
-    this.targetIdx = 1;
-    this.destination = null;
-    this.vmax = 24;
-    this.accel = 1.6;
-    this.decel = 1.5;
-    this.smokeT = 0;
-    this.events = [];
-    this._f = {}; this._f2 = {};
-    this.place();
-  }
-
-  // 停靠时车头所在弧长：让观景车停在站台中央
-  stopS(i) { return this.rail.stations[i].s + this.offsets[3] + 2; }
-
-  get station() { return this.rail.stations[this.stationIdx]; }
-  get nextStation() { return this.rail.stations[this.targetIdx]; }
-  get stopped() { return this.state === 'idle' || this.state === 'dwell'; }
-
-  labelFor(st) {
-    if (this.riding) return null;
-    if (this.stopped && this.stationIdx === st.index) return '按 <b>E</b> 乘坐云轨列车';
-    if (this.state === 'arriving' && this.targetIdx === st.index) return '列车正在进站……';
-    return '按 <b>E</b> 呼叫云轨列车';
-  }
-
-  interact(st) {
-    if (this.riding) return;
-    if (this.stopped && this.stationIdx === st.index) { this.events.push({ type: 'board' }); return; }
-    if (this.state === 'arriving') return;
-    // 呼叫：列车从站外缓缓驶入
-    this.s = this.stopS(st.index) - 280;
-    this.speed = 15;
-    this.targetIdx = st.index;
-    this.state = 'arriving';
-    this.events.push({ type: 'toast', text: `云轨列车正驶向 ${st.name}` });
-  }
-
-  /** 行驶中请求在下一站停靠（取消更远的目的站） */
-  requestNextStop() { if (this.state === 'running') this.destination = null; }
-  openDoors(open) { this.doorsOpen = open; }
-  seatPosition(out) { return this.deckPosition(out); }
-
-  board() {
-    this.riding = true;
-    this.state = 'dwell';
-    this.dwell = 4;
-    this.destination = null;
-  }
-  alight() {
-    this.riding = false;
-    this.state = 'idle';
-    this.speed = 0;
-  }
-  setDestination(i) {
-    if (!this.riding || i === this.stationIdx && this.stopped) return;
-    this.destination = i;
-    if (this.state === 'running') this.targetIdx = i;
-    this.events.push({ type: 'toast', text: `目的站已设为 ${this.rail.stations[i].name}` });
-  }
-  departNow() { if (this.state === 'dwell') this.dwell = 0; }
-
-  distAhead(target) {
-    const L = this.rail.length;
-    return ((target - this.s) % L + L) % L;
-  }
-
-  update(dt, puffs) {
-    const L = this.rail.length;
-    if (this.state === 'dwell') {
-      this.dwell -= dt;
-      if (this.dwell <= 0) {
-        this.state = 'running';
-        this.targetIdx = this.destination ?? (this.stationIdx + 1) % this.rail.stations.length;
-        if (this.targetIdx === this.stationIdx) this.targetIdx = (this.stationIdx + 1) % this.rail.stations.length;
-        this.announced = false;
-        this.events.push({ type: 'depart' });
-      }
-    } else if (this.state === 'running' || this.state === 'arriving') {
-      const d = this.distAhead(this.stopS(this.targetIdx));
-      const vT = Math.min(this.vmax, Math.sqrt(2 * this.decel * Math.max(d - 0.3, 0)) + 0.4);
-      const dv = vT - this.speed;
-      this.speed += Math.max(-this.decel * 2.2 * dt, Math.min(this.accel * dt, dv));
-      const ds = Math.min(this.speed * dt, d);
-      this.s = (this.s + ds) % L;
-      if (this.riding && !this.announced && d < 420) {
-        this.announced = true;
-        this.events.push({ type: 'approach', station: this.rail.stations[this.targetIdx] });
-      }
-      if (d - ds < 0.05) {
-        this.s = this.stopS(this.targetIdx);
-        this.speed = 0;
-        this.stationIdx = this.targetIdx;
-        if (this.riding) {
-          const isDest = this.destination === null || this.destination === this.stationIdx;
-          this.state = 'dwell';
-          this.dwell = isDest ? 12 : 6;
-          if (this.destination === this.stationIdx) this.destination = null;
-          this.events.push({ type: 'arrive', station: this.station });
-        } else this.state = 'idle';
-      }
-    }
-    this.place(dt);
-    // 蒸汽
-    this.smokeT -= dt;
-    if (puffs && this.smokeT <= 0) {
-      const moving = this.speed > 0.5;
-      this.smokeT = moving ? Math.max(0.07, 0.35 - this.speed * 0.012) : 0.9;
-      const p = this.chimneyLocal.clone().applyMatrix4(this.cars[0].matrixWorld);
-      const back = this._f.tan.clone().multiplyScalar(-this.speed * 0.5);
-      puffs.emit(p, back.add(new THREE.Vector3((Math.random() - 0.5) * 0.6, 2.2, (Math.random() - 0.5) * 0.6)), moving ? 1.3 : 0.9, moving ? 3.2 : 2.4);
-    }
-  }
-
-  place(dt = 0) {
-    const f = this._f, f2 = this._f2;
-    this.cars.forEach((car, i) => {
-      const sMid = this.s - this.offsets[i];
-      const half = CAR_LEN[i] / 2 - 1.5;
-      this.rail.frameAt(sMid + half, f);
-      const front = f.pos.clone();
-      this.rail.frameAt(sMid - half, f2);
-      car.position.copy(front).add(f2.pos).multiplyScalar(0.5);
-      car.lookAt(front);
-      car.updateMatrixWorld();
-    });
-    this.rail.frameAt(this.s - this.offsets[0], f);
-    const spin = (this.speed * dt) / 0.42;
-    for (const w of this.wheels) w.rotation.x += spin;
-  }
-
-  /** 观景车甲板上的乘客位置 */
-  deckPosition(out) {
-    const car = this.cars[3];
-    return out.set(0, 1.12, -0.6).applyMatrix4(car.matrixWorld);
-  }
-  get heading() { const t = this._f.tan; return Math.atan2(t.x, t.z); }
-  get tangent() { return this._f.tan; }
-  get midPosition() { return this.cars[1].position; }
-}

@@ -3,6 +3,7 @@
 // ============================================================
 import * as THREE from 'three';
 import { clamp, damp, dampAngle, easeInOut, lerp } from '../core/utils.js';
+import { TrainCamera, TRAIN_VIEWS } from './trainViews.js';
 
 const V = () => new THREE.Vector3();
 
@@ -19,27 +20,33 @@ export class CameraRig {
     this.fov = 55;
     this.lastDrag = -10;
     this.shots = null;
+    this.trainCam = new TrainCamera(physics);
     let drag = false, lx = 0, ly = 0;
     dom.addEventListener('pointerdown', (e) => { drag = true; lx = e.clientX; ly = e.clientY; dom.setPointerCapture?.(e.pointerId); });
     addEventListener('pointerup', () => (drag = false));
     addEventListener('pointermove', (e) => {
       if (!drag) return;
       const dx = e.clientX - lx, dy = e.clientY - ly; lx = e.clientX; ly = e.clientY;
-      if (this.mode === 'train') this.trainYaw -= dx * 0.005; else this.yaw -= dx * 0.005;
+      if (this.mode === 'train') { this.trainCam.drag(dx, dy); this.lastDrag = performance.now() / 1000; return; }
+      this.yaw -= dx * 0.005;
       this.pitch = clamp(this.pitch + dy * 0.004, -0.3, 1.25);
       this.lastDrag = performance.now() / 1000;
     });
-    dom.addEventListener('wheel', (e) => { this.targetDist = clamp(this.targetDist * (1 + e.deltaY * 0.001), 3.5, 30); }, { passive: true });
+    dom.addEventListener('wheel', (e) => { if (this.mode === 'train') { this.trainCam.wheel(e.deltaY); return; } this.targetDist = clamp(this.targetDist * (1 + e.deltaY * 0.001), 3.5, 30); }, { passive: true });
     dom.addEventListener('contextmenu', (e) => e.preventDefault());
   }
 
   get dragging() { return performance.now() / 1000 - this.lastDrag < 1.6; }
 
-  nextTrainView() { this.trainView = (this.trainView + 1) % 4; this.trainYaw = 0; }
-  trainViewName() { return ['远景跟随', '侧面全景', '观景甲板', '高空环绕'][this.trainView]; }
-  interiorAmount() { return this.mode === 'train' && this.trainView === 2 ? 1 : 0.3; }
+  nextTrainView() { this.trainCam.next(this.cam); }
+  setTrainView(i) { this.trainCam.setView(i, this.cam); }
+  nextSeat() { this.trainCam.nextSeat(this.cam); }
+  trainViewName() { return this.trainCam.current.name; }
+  get trainViewId() { return this.trainCam.current.id; }
+  interiorAmount() { return this.mode === 'train' ? this.trainCam.current.interior : 0; }
 
-  enterTrain() { this.mode = 'train'; this.trainYaw = 0; this.snap = true; }
+  /** 上车：从当前相机位置平滑过渡到默认的车窗观景 */
+  enterTrain() { this.mode = 'train'; this.trainCam.snap = false; this.trainCam.setView(0, this.cam); }
   exitTrain(heading) { this.mode = 'follow'; this.yaw = heading + Math.PI; this.pitch = 0.22; this.snap = true; }
 
   /** 播放镜头序列 shots: [{ from:[V,V], look:[V,V], dur, title, sub, fov }] */
@@ -82,34 +89,10 @@ export class CameraRig {
     let desired = V(), target = V();
 
     if (this.mode === 'train') {
-      const tr = ctx.train;
-      const tan = tr.tangent, base = Math.atan2(-tan.x, -tan.z);
-      const mid = tr.midPosition;
-      if (this.trainView === 0) {        // 远景跟随：拉远以强化旅途感
-        const yaw = base + this.trainYaw;
-        const d = 30, pt = 0.28 + this.pitch * 0.4;
-        target.copy(mid).add(V().set(0, 2.5, 0));
-        desired.set(Math.sin(yaw) * Math.cos(pt) * d, Math.sin(pt) * d, Math.cos(yaw) * Math.cos(pt) * d).add(target);
-      } else if (this.trainView === 1) { // 侧面全景
-        const right = V().crossVectors(tan, new THREE.Vector3(0, 1, 0)).normalize();
-        target.copy(mid).addScaledVector(tan, 6).add(V().set(0, 2, 0));
-        desired.copy(mid).addScaledVector(right, 34).addScaledVector(tan, -12).add(V().set(0, 9, 0));
-      } else if (this.trainView === 2) { // 甲板第一视角
-        const yaw = Math.atan2(tan.x, tan.z) + this.trainYaw;
-        desired.copy(p.pos).add(V().set(0, 1.55, 0));
-        target.copy(desired).add(V().set(Math.sin(yaw), -0.08 - this.pitch * 0.3, Math.cos(yaw)));
-        this.pos.copy(desired);
-      } else {                           // 高空环绕
-        const a = performance.now() / 1000 * 0.05;
-        target.copy(mid);
-        desired.copy(mid).add(V().set(Math.cos(a) * 80, 45, Math.sin(a) * 80));
-      }
-      fovT = this.trainView === 2 ? 68 : 52;
-      const k = this.trainView === 2 ? 1 : 4;
-      if (this.snap) { this.pos.copy(desired); this.look.copy(target); this.snap = false; }
-      this.pos.x = damp(this.pos.x, desired.x, k, dt); this.pos.y = damp(this.pos.y, desired.y, k, dt); this.pos.z = damp(this.pos.z, desired.z, k, dt);
-      if (this.trainView === 2) this.pos.copy(desired);
-      this.look.lerp(target, 1 - Math.exp(-8 * dt));
+      this.look.copy(this.trainCam.update(dt, ctx.train, cam));
+      this.pos.copy(cam.position);
+      this.fov = cam.fov;
+      return;
     } else {
       // 跟随：滑翔/奔跑时相机缓慢回到角色身后
       if (p.state === 'glide' && !this.dragging) this.yaw = dampAngle(this.yaw, p.heading + Math.PI, 2.2, dt);
