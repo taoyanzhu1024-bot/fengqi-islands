@@ -160,7 +160,7 @@ async function boot() {
 
   hud.ready();
   rig.yaw = player.heading + Math.PI;
-  if (!params.has('nointro')) startTour('intro', () => hud.toast('沿着石板路走到南边的风栖站，乘上云轨列车吧', 5));
+  if (!params.has('nointro')) startTour('intro', () => hud.toast('南边的风栖站可乘云轨列车，东北岸的空港停着飞艇「风帆号」', 6));
 
   // ---------------- 主循环 ----------------
   const events = [];
@@ -300,9 +300,9 @@ async function boot() {
     player.object.visible = !(rig.mode === 'train' && rig.trainViewId === 'window');
     G.playerPos.value.copy(player.pos);
     world.update(dt, t, camera, { train, player, audio, ride });
-    for (const e of world.whale.events.splice(0)) {
+    for (const w of world.whales) for (const e of w.events.splice(0)) {
       if (e.type === 'toast') hud.toast(e.text, 3.5);
-      else if (e.type === 'sfx') audio.sfx(e.name, { vol: e.at ? Math.max(0.1, 1 - e.at.distanceTo(camera.position) / 1500) : e.vol });
+      else if (e.type === 'sfx') audio.sfx(e.name, { vol: e.at ? Math.max(0.1, 1 - e.at.distanceTo(camera.position) / 1500) : e.vol, pitch: e.pitch });
     }
 
     // —— 音频 ——

@@ -11,6 +11,7 @@ import { Island } from './terrain.js';
 import { Railway } from './railway.js';
 import { Airway } from './airship.js';
 import { CloudWhale } from './whale.js';
+import { cloudRays, skyLanterns } from './skylife.js';
 import { createSky, createCloudSea, CloudField, scatterClouds } from './sky.js';
 import { distantIslets, skyCastle, birdFlocks } from './background.js';
 import { Swarm, Puffs } from './particles.js';
@@ -92,31 +93,46 @@ export class World {
 
     this.rail.build(scene, physics, this.interact);
     this.branch.build(scene, physics, this.interact);
-    // 「风帆号」空中航线：云港岛西岸空港 ⇄ 艾瑟兰东北岸空港（闭合环线，飞艇始终向前飞行）
+    // 「风帆号」空中航线（闭合环线，飞艇始终向前飞行）：
+    // 风栖主岛东北岸（起点）→ 艾瑟兰东北岸 → 云港岛西岸 → 回到主岛
     const port = byId.port, V = (x, y, z) => new THREE.Vector3(x, y, z);
     this.airway = new Airway([
-      { island: port, plan: port.theme.airPlan, name: '云港 · 风帆号空港', hint: V(0, 0, 1) },
+      { island: main, plan: main.theme.airPlan, name: '风栖 · 风帆号空港', hint: V(-0.48, 0, -0.88) },
       { island: city, plan: city.theme.airPlan, name: '艾瑟兰空港', hint: V(-0.48, 0, -0.88) },
+      { island: port, plan: port.theme.airPlan, name: '云港 · 风帆号空港', hint: V(0, 0, 1) },
     ], {
-      waypoints: ([A, B]) => {
-        const a = A.pos, ta = A.dir, b = B.pos, tb = B.dir;
+      waypoints: ([M, B, A]) => {
+        const m = M.pos, tm = M.dir, a = A.pos, ta = A.dir, b = B.pos, tb = B.dir;
         const rb = V(-tb.z, 0, tb.x);                 // 艾瑟兰港航向的右侧
         return [
-          a.clone().addScaledVector(ta, -90), a.clone(), a.clone().addScaledVector(ta, 90),
-          a.clone().add(V(-40, 14, 220)), a.clone().add(V(-210, 48, 250)),
-          V(470, 110, -60), V(200, 165, -600),
+          // 主岛空港：从东南侧（云港方向）降落，向西北起飞并爬升，越过北侧小浮岛
+          m.clone().addScaledVector(tm, -70).add(V(0, 14, 0)), m.clone().addScaledVector(tm, -35).add(V(0, 3, 0)),
+          m.clone(), m.clone().addScaledVector(tm, 50).add(V(0, 4, 0)),
+          m.clone().add(V(-62, 38, -112)), V(-60, 110, -420), V(60, 160, -760),
           b.clone().addScaledVector(tb, -270).add(V(0, -2, 0)),
           b.clone().addScaledVector(tb, -95), b.clone(), b.clone().addScaledVector(tb, 95),
           b.clone().addScaledVector(tb, 235).addScaledVector(rb, 70).add(V(0, 12, 0)),
           b.clone().addScaledVector(tb, 140).addScaledVector(rb, 250).add(V(0, 20, 0)),
           b.clone().addScaledVector(tb, -120).addScaledVector(rb, 380).add(V(0, 10, 0)),
           V(760, 110, -600), V(a.x, a.y + 55, -230),
+          a.clone().addScaledVector(ta, -90), a.clone(), a.clone().addScaledVector(ta, 90),
+          a.clone().add(V(-40, 14, 220)), a.clone().add(V(-210, 48, 250)),
+          // 云港 → 主岛：在环线内侧高空飞行，越过“主岛—花海岛”线路后下降
+          V(470, 110, -60), V(320, 105, -170), V(215, 72, -78),
         ];
       },
     }).build(scene, physics, this.interact);
     this.rails.push(this.airway);
     this.airship = this.airway.train;
-    this.whale = new CloudWhale(scene);
+    this.whale = new CloudWhale(scene);          // 云海里的大云鲸（会伴游列车 / 飞艇）
+    // 风栖主岛附近：一对在岛屿之间高空巡游的云鲸母子（开局抬头就能看到）
+    const mom = new CloudWhale(scene, { name: 'mother', high: true, escort: false, scale: 0.8, phase: 0.62, pitch: 1.15,
+      loop: { cx: 0, cz: -40, rx: 300, rz: 260, y: 150, dy: 12, wob: 0.3 }, seenText: '一对云鲸母子正从岛屿之间游过' });
+    const calf = new CloudWhale(scene, { name: 'calf', parent: mom, escort: false, scale: 0.38, pitch: 1.7, seenText: null });
+    // 天空之城外围：绕着艾瑟兰缓缓游动的第三头云鲸
+    const cityW = new CloudWhale(scene, { name: 'city', high: true, escort: false, scale: 0.9, phase: 0.2, pitch: 0.9,
+      loop: { cx: -420, cz: -1250, rx: 520, rz: 470, y: 150, dy: 18, wob: 0.25 }, seenText: '一头云鲸在天空之城外围缓缓巡游' });
+    this.whales = [this.whale, mom, calf, cityW];
     this.puffs = new Puffs(80);
     scene.add(this.puffs.mesh);
     yield 0.75;
@@ -135,7 +151,23 @@ export class World {
     const avoid = this.all.map((i) => ({ x: i.center.x, y: i.center.y, z: i.center.z, r: i.R }));
     distantIslets(scene, avoid, this.rail.samples.concat(this.branch.samples, this.airway.samples));
     this.castle = byId.city.group;           // 天空之城现在是真实可到达的岛屿
-    birdFlocks(scene, this.anim, this.extraFlocks ?? []);
+    birdFlocks(scene, this.anim, [
+      ...(this.extraFlocks ?? []),
+      { c: [30, 28, 50], R: 55 }, { c: [-40, 34, -40], R: 70 },          // 出生点附近
+      { c: [1000, 45, 160], R: 110 }, { c: [500, 25, 780], R: 150 },     // 云港、森林岛
+      { c: [-420, 270, -1250], R: 210 }, { c: [-740, 160, -40], R: 90 }, // 天空之城、雪鸣岛
+    ]);
+    // 云鳐群：在主岛与花海岛之间、森林岛外侧、天空之城外围、灯塔岛与雪鸣岛之间滑翔
+    this.rays = cloudRays(scene, this.anim, [
+      { c: [200, 75, -150], R: 190, n: 5, scale: 1.7 },
+      { c: [500, 40, 780], R: 260, n: 4, scale: 1.5, speed: 0.035 },
+      { c: [-420, 260, -1250], R: 360, n: 6, scale: 1.9, speed: 0.03 },
+      { c: [-600, 110, 330], R: 210, n: 4, scale: 1.4 },
+    ]);
+    // 天灯：黄昏和夜里从主岛、花海岛、天空之城升起
+    this.lanterns = skyLanterns(scene, this.anim, [
+      { c: [0, 6, 0], r: 55, n: 26 }, { c: [560, 34, -430], r: 70, n: 18 }, { c: [-420, 206, -1250], r: 170, n: 40 },
+    ], () => this.dn);
     yield 0.9;
 
     // 上升气流
@@ -256,7 +288,7 @@ export class World {
     this.camera = camera;
     for (const f of this.anim) f(dt, t);
     for (const rl of this.rails) rl.update(dt, this.puffs, extra.audio);
-    this.whale?.update(dt, { t, camera, ride: extra.ride, dn: this.dn, islands: this.all });
+    for (const w of this.whales ?? []) w.update(dt, { t, camera, ride: extra.ride, dn: this.dn, islands: this.all });
     this.clouds.update(dt, camera);
     // 植被按距离显隐（远处草叶小于一个像素，没必要绘制）
     for (const o of this.lods) o.visible = o.userData.lod.c.distanceTo(camera.position) < o.userData.lod.d;

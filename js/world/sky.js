@@ -19,10 +19,10 @@ export function createSky() {
       uTime: G.time, uSun: G.sunDir,
       uZenith: { value: new THREE.Color(P.skyZenith) }, uMid: { value: new THREE.Color(P.skyMid) },
       uHorizon: { value: new THREE.Color(P.horizon) }, uWarm: { value: new THREE.Color(P.horizonWarm) },
-      uBelow: { value: new THREE.Color(P.below) }, uSunCol: { value: new THREE.Color(P.sun) },
+      uBelow: { value: new THREE.Color(P.below) }, uSunCol: { value: new THREE.Color(P.sun) }, uDusk: { value: 0 },
     },
     vertexShader: `varying vec3 vDir; void main(){ vDir = position; vec4 p = projectionMatrix * modelViewMatrix * vec4(position,1.0); gl_Position = p.xyww; }`,
-    fragmentShader: `uniform float uTime; uniform vec3 uSun, uZenith, uMid, uHorizon, uWarm, uBelow, uSunCol; varying vec3 vDir;
+    fragmentShader: `uniform float uTime; uniform float uDusk; uniform vec3 uSun, uZenith, uMid, uHorizon, uWarm, uBelow, uSunCol; varying vec3 vDir;
       ${NOISE_GLSL}
       void main(){
         vec3 d = normalize(vDir); float h = d.y;
@@ -31,7 +31,16 @@ export function createSky() {
         col = mix(col, uBelow, smoothstep(0.0, -0.2, h));
         float sd = max(dot(d, uSun), 0.0);
         col = mix(col, uWarm, exp(-abs(h)*7.0) * (0.35 + 0.45*pow(sd, 4.0)));
-        col += uSunCol * (pow(sd, 900.0)*2.5 + pow(sd, 24.0)*0.22 + pow(sd, 4.0)*0.10);
+        // 清晨 / 黄昏时压低中心白色光斑，让日轮轮廓清楚
+        col += uSunCol * (pow(sd, 900.0)*2.5*(1.0 - 0.85*uDusk) + pow(sd, 24.0)*0.22 + pow(sd, 4.0)*0.10);
+        // 日轮：清晨 / 黄昏贴近地平线，又大又清楚（饱和的橘红色）；白天较小、偏奶白
+        float cR = mix(0.99978, 0.99868, uDusk);                 // 角半径约 1.2° → 2.9°
+        float sunDisc = smoothstep(cR, cR + 0.00006, sd);
+        vec3 dc = mix(vec3(1.0, 0.96, 0.86), vec3(0.98, 0.42, 0.2), uDusk);
+        float sunOn = clamp(dot(uSunCol, vec3(0.333)) * 1.6, 0.0, 1.0);
+        float core = smoothstep(cR + 0.0002, 1.0, sd);              // 中心略亮，像颜料由浓到淡
+        col += vec3(1.0, 0.62, 0.38) * pow(sd, 120.0) * 0.35 * uDusk * sunOn;   // 低空的橙色光晕
+        col = mix(col, dc * (1.12 + core * 0.25), sunDisc * sunOn);
         // 笔触卷云
         vec2 p = d.xz / (h + 0.22);
         float n = fbm(p*0.9 + vec2(uTime*0.003, uTime*0.001));
@@ -54,10 +63,10 @@ export function createCloudSea() {
     uniforms: {
       uTime: G.time, uSun: G.sunDir, uFogColor: G.fogColor,
       uLight: { value: new THREE.Color(0xfbf6ee) }, uShadow: { value: new THREE.Color(0xb3b5d3) },
-      uWarm: { value: new THREE.Color(P.horizonWarm) },
+      uWarm: { value: new THREE.Color(P.horizonWarm) }, uSeaDusk: { value: 0 },
     },
     vertexShader: `varying vec3 vW; void main(){ vec4 w = modelMatrix * vec4(position,1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }`,
-    fragmentShader: `uniform float uTime; uniform vec3 uSun, uFogColor, uLight, uShadow, uWarm; varying vec3 vW;
+    fragmentShader: `uniform float uTime; uniform float uSeaDusk; uniform vec3 uSun, uFogColor, uLight, uShadow, uWarm; varying vec3 vW;
       ${NOISE_GLSL}
       float hgt(vec2 p){ return fbm(p)*0.7 + fbm(p*3.1+7.0)*0.3; }
       void main(){
@@ -70,6 +79,10 @@ export function createCloudSea() {
         vec3 V = normalize(vW - cameraPosition);
         float sd = pow(max(dot(normalize(vec3(V.x,0.0,V.z)), normalize(vec3(uSun.x,0.0,uSun.z))),0.0), 6.0);
         col = mix(col, uWarm, sd*0.25);
+        // 太阳在云海上的倒影光带（太阳越低越长、越亮）
+        vec3 Rf = reflect(V, vec3(0.0, 1.0, 0.0));
+        float glint = pow(max(dot(Rf, uSun), 0.0), mix(400.0, 60.0, uSeaDusk));
+        col += uWarm * glint * (0.25 + uSeaDusk * 0.6) * (0.6 + 0.4 * h) * step(0.0, uSun.y + 0.02);
         col = mix(col, uFogColor, smoothstep(600.0, 9000.0, dist)*0.92);
         gl_FragColor = vec4(col, 1.0);
       }`,
