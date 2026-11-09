@@ -104,17 +104,27 @@ function buildWhale() {
 }
 
 export class CloudWhale {
-  constructor(scene) {
+  /**
+   * @param o { scale, loop:{cx,cz,rx,rz,y,dy,wob}, phase, high（在岛屿之间的高空巡游，不跃出/不下潜云海）,
+   *            escort（是否伴游列车）, parent（幼鲸跟随的母鲸）, pitch（鲸歌音高）, seenText, name }
+   */
+  constructor(scene, o = {}) {
+    this.o = { scale: 1, phase: 0, high: false, escort: true, parent: null, pitch: 1, name: 'whale',
+      seenText: '云海里有什么在游动……是云鲸！', ...o,
+      loop: { cx: 200, cz: 160, rx: 760, rz: 700, y: SEA + 3, dy: 2, wob: 1, ...(o.loop ?? {}) } };
+    this.parent = this.o.parent;
     this.group = buildWhale();
+    this.group.scale.setScalar(this.o.scale);
     scene.add(this.group);
     this.splash = new Puffs(70);
     this.splash.mesh.renderOrder = 6;
     scene.add(this.splash.mesh);
-    this.pos = new THREE.Vector3(420, SEA + 4, 520);
-    this.vel = new THREE.Vector3(10, 0, 0);
-    this.yaw = Math.PI / 2; this.pitch = 0; this.roll = 0; this.rollExtra = 0;
-    this.state = 'cruise'; this.stateT = 0; this.nextAct = 12;
-    this.u = 0;                         // 巡游路线参数
+    this.u = this.o.phase;              // 巡游路线参数
+    this.pos = this.parent ? this.parent.pos.clone().add(new THREE.Vector3(16, -3, -10)) : this.cruisePoint(this.u, new THREE.Vector3());
+    const ahead = this.cruisePoint((this.u + 0.01) % 1, new THREE.Vector3()).sub(this.pos);
+    this.vel = ahead.setY(0).setLength(10);
+    this.yaw = Math.atan2(this.vel.x, this.vel.z); this.pitch = 0; this.roll = 0; this.rollExtra = 0;
+    this.state = this.parent ? 'follow' : 'cruise'; this.stateT = 0; this.nextAct = 12;
     this.escortCD = 25; this.escortT = 0;
     this.swim = 0; this.amp = 0.5;
     this.events = [];
@@ -126,8 +136,8 @@ export class CloudWhale {
 
   /** 巡游路线：环绕群岛的大圈（云海表面） */
   cruisePoint(u, out) {
-    const a = u * Math.PI * 2;
-    return out.set(200 + Math.cos(a) * 760 + Math.sin(a * 3) * 200, SEA + 3 + Math.sin(a * 5) * 2, 160 + Math.sin(a) * 700 + Math.cos(a * 2) * 160);
+    const a = u * Math.PI * 2, L = this.o.loop;
+    return out.set(L.cx + Math.cos(a) * L.rx + Math.sin(a * 3) * L.rx * 0.263 * L.wob, L.y + Math.sin(a * 5) * L.dy, L.cz + Math.sin(a) * L.rz + Math.cos(a * 2) * L.rz * 0.229 * L.wob);
   }
   get cruiseLen() {
     if (!this._cl) { let L = 0; const a = new THREE.Vector3(), b = new THREE.Vector3(); for (let i = 0; i < 400; i++) L += this.cruisePoint(i / 400, a).distanceTo(this.cruisePoint((i + 1) / 400, b)); this._cl = L; }
@@ -147,17 +157,23 @@ export class CloudWhale {
     this.stateT += dt;
     const night = dn?.night ?? 0, dusk = dn?.dusk ?? 0;
     const vehicle = ride?.onTrain ? ride.train : null;
-    const moving = vehicle && vehicle.state === 'running' && vehicle.speed > 6;
+    const moving = this.o.escort && vehicle && vehicle.state === 'running' && vehicle.speed > 6;
     this.escortCD -= dt;
+    const P = this.parent;
 
     // —— 行为切换 ——
-    if (this.state !== 'escort' && moving && this.escortCD <= 0 && this.state !== 'breach') { this.set('escort'); this.stats.escort++; this.joined = false; }
+    if (P) {
+      // 幼鲸：一直贴在母鲸身侧；母鲸跃出云海时晚半拍跟着跃起
+      if (P.state === 'breach' && this.state !== 'breach' && P.stateT > 0.6) this.startBreach();
+      else if (this.state !== 'breach' && this.state !== 'follow') this.set('follow');
+    }
+    if (!P && this.state !== 'escort' && moving && this.escortCD <= 0 && this.state !== 'breach') { this.set('escort'); this.stats.escort++; this.joined = false; }
     if (this.state === 'escort' && (!moving || this.stateT > 75)) { this.set('cruise'); this.u = this.nearestU(); this.escortCD = 80; }
     if (this.state === 'cruise') {
       this.nextAct -= dt;
       if (this.nextAct <= 0) {
-        const r = Math.random(), pb = 0.32 + dusk * 0.3;
-        if (r < pb) { this.set('breach'); this.stats.breach++; this.b0 = this.pos.clone(); this.bDir = _v.set(Math.sin(this.yaw), 0, Math.cos(this.yaw)).clone(); this.splashed = 0; }
+        const r = Math.random(), pb = this.o.high ? 0 : 0.32 + dusk * 0.3;
+        if (r < pb) this.startBreach();
         else if (r < pb + 0.3) { this.set('roll'); this.stats.roll++; }
         else { this.set('dive'); this.stats.dive++; }
         this.nextAct = 16 + Math.random() * 18;
@@ -167,7 +183,13 @@ export class CloudWhale {
     // —— 目标速度 ——
     const want = _w;
     let vmax = 14;
-    if (this.state === 'escort') {
+    if (this.state === 'follow') {
+      const fwd = _v.set(Math.sin(P.yaw), 0, Math.cos(P.yaw)), right = _q.set(fwd.z, 0, -fwd.x);
+      const tgt = this._ft || (this._ft = new THREE.Vector3());
+      tgt.copy(P.pos).addScaledVector(right, 15 * P.o.scale).addScaledVector(fwd, -8 * P.o.scale); tgt.y = P.pos.y - 3 * P.o.scale + Math.sin(t * 0.7) * 1.5;
+      want.copy(P.vel).addScaledVector(tgt.sub(this.pos), 0.5);
+      vmax = 34;
+    } else if (this.state === 'escort') {
       // 车窗一侧（局部 -X）偏前方，比车身低一些
       const side = _v.set(-1, 0, 0).transformDirection(vehicle.rideMatrix).setY(0).normalize();
       const tan = vehicle.moveTangent ?? vehicle.tangent;
@@ -192,17 +214,21 @@ export class CloudWhale {
       // 跃出云海：沿当前方向前进，高度按抛物线
       const k = this.stateT / 7.5;
       const h = Math.sin(clamp(k, 0, 1) * Math.PI);
-      const y = SEA - 14 + h * 92;
+      const y = SEA - 14 + h * 92 * Math.sqrt(this.o.scale);
       want.copy(this.bDir).multiplyScalar(17);
       want.y = (y - this.pos.y) * 3;
       vmax = 60;
       if (k > 0.06 && this.splashed === 0) { this.splashed = 1; this.burst(this.pos, 1); }
       if (k > 0.9 && this.splashed === 1) { this.splashed = 2; this.burst(this.pos, 1.2); }
-      if (k >= 1.05) { this.set('cruise'); this.u = this.nearestU(); }
+      if (k >= 1.05) { this.set(P ? 'follow' : 'cruise'); this.u = this.nearestU(); }
     } else {
       this.u = (this.u + (12 / this.cruiseLen) * dt) % 1;
       const tgt = this.cruisePoint((this.u + 0.012) % 1, _q);
-      if (this.state === 'dive') { tgt.y = this.stateT < 10 ? SEA - 60 : SEA + 3; if (this.stateT > 18) { this.set('cruise'); this.spout(); } }
+      if (this.state === 'dive') {
+        const base = tgt.y;
+        tgt.y = this.stateT < 10 ? (this.o.high ? base - 28 : SEA - 60) : base;
+        if (this.stateT > 18) { this.set('cruise'); this.spout(); }
+      }
       // 巡游目标沿路线移动；鲸鱼落后时加速追赶
       const dyT = tgt.y - this.pos.y;
       want.copy(tgt.sub(this.pos)).setY(0).multiplyScalar(0.12);
@@ -259,17 +285,20 @@ export class CloudWhale {
     this.songT -= dt;
     if (this.songT <= 0) {
       this.songT = 22 + Math.random() * 20;
-      if (dist < 1400) { this.events.push({ type: 'sfx', name: 'whale', vol: clamp(1 - dist / 1500, 0.15, 1) }); this.stats.song++; }
+      if (dist < 1400) { this.events.push({ type: 'sfx', name: 'whale', vol: clamp(1 - dist / 1500, 0.15, 1), pitch: this.o.pitch }); this.stats.song++; }
     }
-    if (!this.seen && dist < 520) { this.seen = true; this.events.push({ type: 'toast', text: '云海里有什么在游动……是云鲸！' }); }
+    if (!this.seen && dist < 520 && this.o.seenText) { this.seen = true; this.events.push({ type: 'toast', text: this.o.seenText }); }
     this.dist = dist;
   }
 
+  startBreach() { this.set('breach'); this.stats.breach++; this.b0 = this.pos.clone(); this.bDir = new THREE.Vector3(Math.sin(this.yaw), 0, Math.cos(this.yaw)); this.splashed = 0; }
+
   /** 跃出 / 落回云海时的大片云浪 */
   burst(p, k = 1) {
+    k *= Math.sqrt(this.o.scale);
     for (let i = 0; i < 22; i++) {
       const a = (i / 22) * Math.PI * 2;
-      this.splash.emit(_v.set(p.x + Math.cos(a) * 9, SEA + 2, p.z + Math.sin(a) * 9), _w.set(Math.cos(a) * 9 * k, 6 + Math.random() * 10, Math.sin(a) * 9 * k), 9 + Math.random() * 6, 4.5);
+      this.splash.emit(_v.set(p.x + Math.cos(a) * 9 * k, SEA + 2, p.z + Math.sin(a) * 9 * k), _w.set(Math.cos(a) * 9 * k, 6 + Math.random() * 10, Math.sin(a) * 9 * k), (9 + Math.random() * 6) * k, 4.5);
     }
     this.stats.splash++;
     this.events.push({ type: 'sfx', name: 'splash', vol: 1, at: p.clone() });
@@ -278,6 +307,6 @@ export class CloudWhale {
   spout() {
     const p = _v.set(0, 6, 15.5).applyMatrix4(this.group.matrixWorld);
     for (let i = 0; i < 8; i++) this.splash.emit(p, _w.set((Math.random() - 0.5) * 2, 14 + i * 2, (Math.random() - 0.5) * 2), 3 + i * 0.5, 3);
-    this.events.push({ type: 'sfx', name: 'whale', vol: 0.6 });
+    this.events.push({ type: 'sfx', name: 'whale', vol: 0.6, pitch: this.o.pitch });
   }
 }

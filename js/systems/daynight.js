@@ -102,12 +102,14 @@ export class DayNight {
     this.pick('warm', su.uWarm.value); this.pick('below', su.uBelow.value);
     su.uSunCol.value.copy(KEY.sun[2]).lerp(KEY.sun[1], this.dusk).multiplyScalar(1 - this.night);
     su.uNight.value = this.night;
+    su.uDusk.value = this.dusk;
     this.pick('fog', G.fogColor.value);
     if (this.scene.fog) this.scene.fog.color.copy(G.fogColor.value);
     this.pick('haze', G.hazeColor.value);
     const sea = this.sea.material.uniforms;
     this.pick('seaLight', sea.uLight.value); this.pick('seaShadow', sea.uShadow.value);
     sea.uWarm.value.copy(su.uWarm.value);
+    if (sea.uSeaDusk) sea.uSeaDusk.value = this.dusk;
     if (this.clouds?.mesh) this.pick('cloud', this.clouds.mesh.material.uniforms.uTint.value);
 
     // 灯光：白天太阳，夜晚月光（偏蓝、较弱）

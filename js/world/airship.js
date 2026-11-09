@@ -532,7 +532,7 @@ export class Airway {
 }
 
 // ---------------- 飞艇运行 ----------------
-// 状态与 Train 相同：idle → arriving → dwell → running；无人乘坐时在两港之间定时往返
+// 状态与 Train 相同：idle → arriving → dwell → running；无人乘坐时停在起点，或自动飞回起点
 export class Airship {
   constructor(rail) {
     this.rail = rail;
@@ -542,7 +542,7 @@ export class Airship {
     const U = this.group.userData;
     this.doors = U.doors; this.anchors = U.anchors;
     this.dir = 1; this.totalLen = 0;
-    this.stationIdx = 0;
+    this.stationIdx = 0; this.home = 0;            // 0 号港（风栖主岛）是飞艇的家
     this.s = this.stopS(0);
     this.speed = 0; this.state = 'idle'; this.riding = false; this.dwell = 0;
     this.targetIdx = 1; this.destination = null;
@@ -596,12 +596,12 @@ export class Airship {
 
   update(dt) {
     const L = this.rail.length;
-    // 无人乘坐：在港口停留一段时间后自动飞往另一港（玩家站在码头附近时等待）
+    // 无人乘坐：平时停在起点（风栖主岛空港）等候；停在别的港口时，玩家离开 45 秒后自动飞回起点
     if (this.state === 'idle' && !this.riding) {
       this.idleT += dt;
       const near = this.station.platformCenter.distanceTo(G.playerPos.value) < 70;
-      if (this.idleT > 45 && !near) {
-        this.idleT = 0; this.state = 'running'; this.targetIdx = this.nextIndex(this.stationIdx);
+      if (this.stationIdx !== this.home && this.idleT > 45 && !near) {
+        this.idleT = 0; this.state = 'running'; this.targetIdx = this.home;
         this.events.push({ type: 'depart' });
       }
     }

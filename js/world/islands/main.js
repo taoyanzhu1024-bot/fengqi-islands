@@ -7,6 +7,7 @@ import * as pr from '../props.js';
 import { DETAILS } from './details.js';
 import { grassField, flowerField } from '../vegetation.js';
 import { waterfall, Swarm } from '../particles.js';
+import { planAirDock, buildAirDock } from '../airship.js';
 
 const _c = new THREE.Color();
 const TREE = [-20, -14], HOUSE = [30, 26], MILL = [-46, 20];
@@ -42,6 +43,11 @@ export const mainTheme = {
     const wst = isl.stations?.[1];   // 天空支线 · 风栖西站
     if (wst) isl.addPath([cross, [-30, -8], [wst.local.x * 0.8, wst.local.z - 4], [wst.local.x, wst.local.z]]);
     isl.addStream([[-34, 34], [-42, 46], [-50, 58], [-60, 70]]);
+    // 「风帆号」空港：东北岸，开局就能看到；飞往天空之城与云港
+    this.airTh = -0.5;
+    this.airPlan = planAirDock(isl, this.airTh);
+    const ar = this.airPlan.rootR - 1, ao = [Math.cos(this.airTh), Math.sin(this.airTh)];
+    isl.addPath([cross, [26, -12], [ao[0] * ar, ao[1] * ar]], 2.2);
     this.cross = cross;
   },
   populate(isl, ctx, b) {
@@ -62,6 +68,7 @@ export const mainTheme = {
     pr.barrel(b, ctx.at(isl, HOUSE[0] - 4.6, HOUSE[1] + 1.6));
     pr.crate(b, ctx.at(isl, HOUSE[0] - 4.4, HOUSE[1] - 1, 0.4), 0.8);
     pr.signpost(b, ctx.at(isl, this.cross[0] + 2.5, this.cross[1] + 2, 0.6));
+    this.airDock = buildAirDock(isl, ctx, b, this.airPlan, { name: '风栖 · 风帆号空港', roof: P.coral });
     pr.bench(b, ctx.at(isl, TREE[0] + 7, TREE[1] + 9, -0.9));
     // 风车
     const wm = pr.windmill(b, ctx.at(isl, MILL[0], MILL[1], 1.2, -0.2));

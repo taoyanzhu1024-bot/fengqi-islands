@@ -241,8 +241,8 @@ export class AudioManager {
       case 'chime': { const s = SCALES.snow; for (let i = 0; i < 3; i++) this.bell(midi(s[Math.floor(Math.random() * 5)] + 24), 0.025); break; }
       case 'whale': {
         // 云鲸：低沉、缓慢滑音 + 轻微颤音
-        const c = this.ctx, t = c.currentTime, v = opt.vol ?? 0.5;
-        for (const [f0, f1, k] of [[110, 70, 1], [220, 150, 0.35], [330, 260, 0.12]]) {
+        const c = this.ctx, t = c.currentTime, v = opt.vol ?? 0.5, pm = opt.pitch ?? 1;
+        for (const [f0, f1, k] of [[110 * pm, 70 * pm, 1], [220 * pm, 150 * pm, 0.35], [330 * pm, 260 * pm, 0.12]]) {
           const o = c.createOscillator(), g = c.createGain(), lfo = c.createOscillator(), lg = c.createGain();
           o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f1, t + 3.2);
           lfo.frequency.value = 5; lg.gain.value = f0 * 0.01; lfo.connect(lg).connect(o.frequency);
